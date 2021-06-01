@@ -24,6 +24,16 @@ class TransformerNLU(nn.Module):
             if not self.training:
                 self.crf_layer.eval()
 
+    """
+    def set_num_intents(self, acc_num_intents):
+        self.num_intents = acc_num_intents
+        self.intent_classifier = nn.Linear(trans_model.config.hidden_size, num_intents) # TODO adjust weights of this layer to the new num_intents
+
+    def set_num_slots(self, acc_num_slots):
+        self.num_slots = acc_num_slots
+        # TODO adjust weights of this layer to the new num_intents
+    """
+
     def forward(self, input_ids, intent_labels=None, slot_labels=None):
 
         if self.training:

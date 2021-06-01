@@ -49,16 +49,17 @@ class AugmentedList:
         end_idx = start_idx + batch_size
         if end_idx <= self.size:
             self.cur_idx = end_idx % self.size
-            return items[start_idx : end_idx]
+            return items[start_idx: end_idx]
         else:
-            first_part = items[start_idx : self.size]
+            first_part = items[start_idx: self.size]
             remain_size = batch_size - (self.size - start_idx)
-            second_part = items[0 : remain_size]
+            second_part = items[0: remain_size]
             self.cur_idx = remain_size
             returned_batch = [item for item in first_part + second_part]
             if self.shuffle_between_epoch:
                 random.shuffle(self.items)
             return returned_batch
+
     @property
     def size(self):
         return len(self.items)
@@ -76,31 +77,36 @@ def clean_text(token_list, lang):
     for token in token_list:
         new_token = token
         # detect <TIME>
-        if lang != "th" and ( bool(re.match(pattern_time1, token)) or bool(re.match(pattern_time2, token))
-                              or bool(re.match(pattern_time3, token)) or token in pattern_time4 or (token.isdigit()
-                                                                                                    and len(token)==3)):
+        if lang != "th" and (bool(re.match(pattern_time1, token))
+                             or bool(re.match(pattern_time2, token))
+                             or bool(re.match(pattern_time3, token))
+                             or token in pattern_time4 or (token.isdigit() and len(token) == 3)):
+
             new_token = "<TIME>"
             token_list_clean.append(new_token)
             continue
-        if lang == "th" and ( bool(re.match(pattern_time_th1, token)) or bool(re.match(pattern_time_th2, token))
-                              or bool(re.match(pattern_time_th3, token)) ):
+        if lang == "th" and (bool(re.match(pattern_time_th1, token))
+                             or bool(re.match(pattern_time_th2, token))
+                             or bool(re.match(pattern_time_th3, token))):
             new_token = "<TIME>"
             token_list_clean.append(new_token)
             continue
         # detect <LAST>
-        if lang == "en" and ( bool(re.match(pattern_last1, token)) or bool(re.match(pattern_last2, token))
-                              or bool(re.match(pattern_last3, token)) ):
+        if lang == "en" and (bool(re.match(pattern_last1, token))
+                             or bool(re.match(pattern_last2, token))
+                             or bool(re.match(pattern_last3, token))):
             new_token = "<LAST>"
             token_list_clean.append(new_token)
             continue
         # detect <DATE>
-        if lang == "en" and ( bool(re.match(pattern_date1, token)) or bool(re.match(pattern_date2, token))
-                              or bool(re.match(pattern_date3, token)) or bool(re.match(pattern_date4, token))):
+        if lang == "en" and (bool(re.match(pattern_date1, token))
+                             or bool(re.match(pattern_date2, token))
+                             or bool(re.match(pattern_date3, token)) or bool(re.match(pattern_date4, token))):
             new_token = "<DATE>"
             token_list_clean.append(new_token)
             continue
         # detect <LOCATION>
-        if lang != "th" and ( token.isdigit() and len(token)==5 ):
+        if lang != "th" and (token.isdigit() and len(token) == 5):
             new_token = "<LOCATION>"
             token_list_clean.append(new_token)
             continue
@@ -387,8 +393,8 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
 
 class Dataset:
     """  """
-    def __init__(self, data_path, setup_option, tokenizer, data_format, use_slots, seed, languages, order_class,
-                 order_lang, num_intent_tasks, num_lang_tasks, intent_types=[], slot_types=["O", "X"]):
+    def __init__(self, data_path, setup_option, setup_3, tokenizer, data_format, use_slots, seed, languages,
+                 order_class, order_lang, num_intent_tasks, num_lang_tasks, intent_types=[], slot_types=["O", "X"]):
         self.tokenizer = tokenizer
         self.use_slots = use_slots
         self.data_format = data_format
@@ -403,6 +409,7 @@ class Dataset:
         self.order_lang = order_lang
         self.languages = languages
         self.setup_option = setup_option
+        self.setup_3 = setup_3
 
         random.seed(self.seed)
 
@@ -415,7 +422,7 @@ class Dataset:
             self.dev_set[lang] = self.read_split(lang, "eval")
             self.test_set[lang] = self.read_split(lang, "test")
 
-        if self.setup_option == 1:
+        if self.setup_option == "cil":
             """ 
             Setup 1: Cross-CIL, Fixed LL: "Monolingual CIL"
             - Stream consisting of different combinations of classes from single language each time.
@@ -428,8 +435,11 @@ class Dataset:
 
             for lang in self.languages:
                 ordered_train, ordered_intents = self.partition_per_intent(self.train_set[lang])
-                ordered_dev, _ = self.partition_per_intent(self.dev_set[lang], ordered_keys=ordered_intents) # using the same intent types order as the train
-                ordered_test, _ = self.partition_per_intent(self.test_set[lang], ordered_keys=ordered_intents) # using the same intent types order as the train
+                ordered_dev, _ = self.partition_per_intent(self.dev_set[lang],
+                                                           ordered_keys=ordered_intents) # using the same intent types order as the train
+
+                ordered_test, _ = self.partition_per_intent(self.test_set[lang],
+                                                            ordered_keys=ordered_intents) # using the same intent types order as the train
 
                 for i in range(0, len(self.intent_types), num_intent_tasks):
                     int_task_train = []
@@ -442,41 +452,47 @@ class Dataset:
                         int_task_test.extend(ordered_test[intent])
 
                     self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                    "stream": AugmentedList(int_task_train, shuffle_between_epoch=True)})
+                                                    "stream": AugmentedList(int_task_train, shuffle_between_epoch=True),
+                                                    "size": len(int_task_train)})
                     self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                  "stream": AugmentedList(int_task_dev, shuffle_between_epoch=True)})
+                                                  "stream": AugmentedList(int_task_dev, shuffle_between_epoch=True),
+                                                  "size": len(int_task_dev)})
                     self.test_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                   "stream": AugmentedList(int_task_test)})
+                                                   "stream": AugmentedList(int_task_test),
+                                                   "size": len(int_task_test)})
 
-        elif self.setup_option == 2:
+        elif self.setup_option == "cll":
             """
             Setup 2: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning" 
             - Stream consisting of different combinations of languages.
             => Each stream sees all intents
             """
-            self.train_stream = {"all_intents": []}
-            self.dev_stream = {"all_intents": []}
-            self.test_stream = {"all_intents": []}
 
             ordered_langs = self.partition_per_lang(self.train_set)
 
-            self.train_stream["all_intents"] = [{"lang": lang,
-                                                 "stream": AugmentedList(self.train_set[lang], shuffle_between_epoch=True)}
-                                                for lang in ordered_langs]
-            self.dev_stream["all_intents"] = [{"lang": lang,
-                                               "stream": AugmentedList(self.dev_set[lang], shuffle_between_epoch=True)}
-                                              for lang in ordered_langs]
-            self.test_stream["all_intents"] = [{"lang": lang, "stream": AugmentedList(self.test_set[lang])}
-                                               for lang in ordered_langs]
+            self.train_stream = [{"lang": lang,
+                                  "stream": AugmentedList(self.train_set[lang], shuffle_between_epoch=True),
+                                  "size": len(self.train_set[lang])}
+                                 for lang in ordered_langs]
 
-        elif self.setup_option == 3:
+            self.dev_stream = [{"lang": lang,
+                                "stream": AugmentedList(self.dev_set[lang], shuffle_between_epoch=True),
+                                "size": len(self.dev_set[lang])}
+                               for lang in ordered_langs]
+
+            self.test_stream = [{"lang": lang,
+                                 "stream": AugmentedList(self.test_set[lang]),
+                                 "size": len(self.test_set[lang])}
+                                for lang in ordered_langs]
+
+        elif self.setup_option == "cil-ll":
             """
             Setup 3: Cross-CIL-LL: "Cross-lingual combinations of languages/intents"
             - Stream consisting of different combinations 
             """
-            self.train_stream = {"all_paths": []}
-            self.dev_stream = {"all_paths": []}
-            self.test_stream = {"all_paths": []}
+            self.train_stream = []
+            self.dev_stream = []
+            self.test_stream = []
 
             ordered_langs = self.partition_per_lang(self.train_set)
 
@@ -499,19 +515,31 @@ class Dataset:
                         int_lang_task_dev = []
                         int_lang_task_test = []
 
+                        intent_batches = []
                         for lang in lang_batch:
                             intent_batch = ordered_intents[lang][i:i+num_intent_tasks]
+                            intent_batches.extend(intent_batch)
                             for intent in intent_batch:
                                 int_lang_task_train += ordered_train[lang][intent]
                                 int_lang_task_dev += ordered_dev[lang][intent]
                                 int_lang_task_test += ordered_test[lang][intent]
 
-                        self.train_stream["all_paths"].append({"lang": lang_batch, "intent": intent_batch,
-                                                               "stream": AugmentedList(int_lang_task_train, shuffle_between_epoch=True)})
-                        self.dev_stream["all_paths"].append({"lang": lang_batch, "intent": intent_batch,
-                                                             "stream": AugmentedList(int_lang_task_dev, shuffle_between_epoch=True)})
-                        self.test_stream["all_paths"].append({"lang": lang_batch, "intent": intent_batch,
-                                                              "stream": AugmentedList(int_lang_task_test)})
+                        self.train_stream.append({"lang": lang_batch,
+                                                  "intent": intent_batches,
+                                                  "stream": AugmentedList(int_lang_task_train,
+                                                                          shuffle_between_epoch=True),
+                                                  "size": len(int_lang_task_train)})
+
+                        self.dev_stream.append({"lang": lang_batch,
+                                                "intent": intent_batches,
+                                                "stream": AugmentedList(int_lang_task_dev,
+                                                                        shuffle_between_epoch=True),
+                                                "size": len(int_lang_task_dev)})
+
+                        self.test_stream.append({"lang": lang_batch,
+                                                 "intent": intent_batches,
+                                                 "stream": AugmentedList(int_lang_task_test),
+                                                 "size": len(int_lang_task_test)})
 
             else: # Vertically goes linearly over all languages of each intent batch before moving to the next intents batch
                 for i in range(0, len(self.intent_types), num_intent_tasks):
@@ -520,30 +548,49 @@ class Dataset:
                         int_lang_task_dev = []
                         int_lang_task_test = []
                         lang_batch = ordered_langs[j:j+num_lang_tasks]
+                        intent_batches = []
                         for lang in lang_batch:
                             intent_batch = ordered_intents[lang][i:i+num_intent_tasks]
+                            intent_batches.extend(intent_batch)
                             for intent in intent_batch:
                                 int_lang_task_train += ordered_train[lang][intent]
                                 int_lang_task_dev += ordered_dev[lang][intent]
                                 int_lang_task_test += ordered_test[lang][intent]
 
-                        self.train_stream["all_paths"].append({"lang": lang_batch, "intent": intent_batch,
-                                                               "stream": AugmentedList(int_lang_task_train, shuffle_between_epoch=True)})
-                        self.dev_stream["all_paths"].append({"lang": lang_batch, "intent": intent_batch,
-                                                             "stream":AugmentedList(int_lang_task_dev, shuffle_between_epoch=True)})
-                        self.test_stream["all_paths"].append({"lang": lang_batch, "intent": intent_batch,
-                                                              "stream":AugmentedList(int_lang_task_test)})
+                        self.train_stream.append({"lang": lang_batch,
+                                                  "intent": intent_batches,
+                                                  "stream": AugmentedList(int_lang_task_train,
+                                                                          shuffle_between_epoch=True),
+                                                  "size": len(int_lang_task_train)})
 
-        elif self.setup_option == 4:
+                        self.dev_stream.append({"lang": lang_batch,
+                                                "intent": intent_batches,
+                                                "stream": AugmentedList(int_lang_task_dev,
+                                                                        shuffle_between_epoch=True),
+                                                "size": len(int_lang_task_dev)})
+
+                        self.test_stream.append({"lang": lang_batch,
+                                                 "intent": intent_batches,
+                                                 "stream": AugmentedList(int_lang_task_test),
+                                                 "size": len(int_lang_task_test)})
+
+        elif self.setup_option == "multi":
             """
             Setup 4: Multi-task: train on all languages and intent classes at the same time 
             
             """
-            self.train_stream = AugmentedList([self.train_set[lang] for lang in self.languages], shuffle_between_epoch=True)
-            self.dev_stream = AugmentedList([self.dev_set[lang] for lang in self.languages], shuffle_between_epoch=True)
+            train_set_all = [self.train_set[lang] for lang in self.languages]
+            self.train_stream = {"data": AugmentedList(train_set_all, shuffle_between_epoch=True),
+                                 "size": len(train_set_all)}
+
+            dev_set_all = [self.dev_set[lang] for lang in self.languages]
+            self.dev_stream = {"data": AugmentedList(dev_set_all, shuffle_between_epoch=True),
+                               "size": len(dev_set_all)}
+
             self.test_stream = {}
             for lang in self.languages:
-                self.test_stream.update({lang: AugmentedList(self.test_set[lang])})
+                self.test_stream.update({lang: {"data": AugmentedList(self.test_set[lang]),
+                                                "size": len(self.test_set[lang])}})
 
     def read_split(self, lang, split):
         """
