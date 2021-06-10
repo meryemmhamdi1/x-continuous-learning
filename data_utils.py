@@ -322,7 +322,7 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
         for i, line in enumerate(reader):
             domain = line[3]
             intent = domain+":"+line[0].split(":")[1]
-            slot_splits = line[1].split(",")
+            slot_splits = re.split(',|，', line[1])
             utterance = line[2]
 
             if intent not in intent_set:
@@ -334,10 +334,11 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
             slot_line = []
             if line[1] != '':
                 for item in slot_splits:
-                    item_splits = item.split(":")
-                    assert len(item_splits) == 4
-                    slot_item = {"start": item_splits[0], "end": item_splits[1], "slot": item_splits[3]}
-                    slot_line.append(slot_item)
+                    if item != '':
+                        item_splits = item.split(":")
+                        assert len(item_splits) == 4
+                        slot_item = {"start": item_splits[0], "end": item_splits[1], "slot": item_splits[3]}
+                        slot_line.append(slot_item)
 
             token_part = json.loads(line[6])
 
@@ -366,7 +367,7 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
                 if nolabel:
                     slots.append("O")
 
-            if i <= 2:
+            if i<=2:
                 print("utterance:", utterance, " slots:", slots, " tokens: ", tokens, " intent:", intent)
 
             assert len(slots) == len(tokens)
@@ -386,7 +387,7 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
             sub_slots.append('X')
             assert len(sub_slots) == len(sub_tokens)
 
-            process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots))
+            process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots, i))
 
     return process_egs
 
@@ -480,10 +481,10 @@ class Dataset:
                                 "size": len(self.dev_set[lang])}
                                for lang in ordered_langs]
 
-            self.test_stream = [{"lang": lang,
-                                 "stream": AugmentedList(self.test_set[lang]),
-                                 "size": len(self.test_set[lang])}
-                                for lang in ordered_langs]
+            self.test_stream = {lang:
+                                    {"stream": AugmentedList(self.test_set[lang]),
+                                     "size": len(self.test_set[lang])}
+                                for lang in ordered_langs}
 
         elif self.setup_option == "cil-ll":
             """
@@ -579,7 +580,9 @@ class Dataset:
             Setup 4: Multi-task: train on all languages and intent classes at the same time 
             
             """
-            train_set_all = [self.train_set[lang] for lang in self.languages]
+            train_set_all = []
+            for lang in self.train_set:
+                train_set_all += self.train_set[lang]
             self.train_stream = {"data": AugmentedList(train_set_all, shuffle_between_epoch=True),
                                  "size": len(train_set_all)}
 
@@ -638,34 +641,30 @@ class Dataset:
     def partition_per_lang(self, train_set):
         if self.order_class == 0: # decreasing frequency
             sorted_langs = sorted(train_set, key=lambda lang: len(train_set[lang]), reverse=True)
-            return sorted_langs.keys()
+            print("sorted_langs:", sorted_langs)
+            return sorted_langs
 
         elif self.order_class == 1: # increasing frequency
             sorted_langs = sorted(train_set, key=lambda lang: len(train_set[lang]))
-            return sorted_langs.keys()
+            return sorted_langs
 
         else: # random frequency
             keys = train_set.keys()
             random.shuffle(keys)
             return keys
 
-    def next_batch(self, batch_size, data_split, dev_langs):
+    def next_batch(self, batch_size, data_split):
         """
         Usual next batch mechanism for pre-training base model
         :param batch_size:
         :param data_split: train or test
         :return:
         """
-        examples = []
-        if len(dev_langs) != 0:
-            for lang in dev_langs:
-                examples.extend(data_split[lang].next_items(batch_size))
-        else:
-            examples = data_split.next_items(batch_size)
+        examples = data_split.next_items(batch_size)
 
         max_sent_len = 0
-        input_ids, lengths, intent_labels, slot_labels, token_type_ids, attention_mask, input_texts, input_identifiers \
-            = [], [], [], [], [], [], [], []
+        input_ids, lengths, intent_labels, slot_labels, token_type_ids, attention_mask, input_masks, \
+        input_texts, input_identifiers = [], [], [], [], [], [], [], [], []
 
         for example in examples:
             input_texts.append(example[0])
@@ -691,9 +690,10 @@ class Dataset:
 
         # Padding
         for i in range(batch_size):
+            input_masks.append([1]*len(input_ids[i]) + [0]*(max_sent_len - len(input_ids[i])))
             input_ids[i] += [0] * (max_sent_len - len(input_ids[i]))
 
-            token_type_ids.append([1 for x in input_ids[i]])
+            token_type_ids.append([1 for _ in input_ids[i]])
             attention_mask.append([int(x > 0) for x in input_ids[i]])
             if self.use_slots:
                 slot_labels[i] += [0] * (max_sent_len - len(slot_labels[i]))
@@ -704,6 +704,7 @@ class Dataset:
         lengths = LongTensor(lengths)
         intent_labels = LongTensor(intent_labels)
         token_type_ids = LongTensor(token_type_ids)
+        input_masks = LongTensor(input_masks)
         attention_mask = LongTensor(attention_mask)
 
-        return (input_ids, lengths, token_type_ids, attention_mask, intent_labels, slot_labels, input_texts), examples
+        return (input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, input_texts), examples
