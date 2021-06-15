@@ -9,8 +9,15 @@ from models.transNLUCRF import TransNLUCRF
 from transformers_config import MODELS_dict
 from tqdm import tqdm
 import torch
+import torch.nn as nn
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR as SchedulerLR
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score, precision_score, recall_score
+import sys
+import logstats
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def nlu_evaluation(model, dataset, dataset_test, nb_examples, use_slots):
@@ -23,8 +30,6 @@ def nlu_evaluation(model, dataset, dataset_test, nb_examples, use_slots):
     slots_true = []
     slots_pred = []
 
-    seen_examples = []
-    print("nb_examples:", nb_examples)
     for _ in range(nb_examples):
         (input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, input_texts), text \
             = dataset.next_batch(1, dataset_test)
@@ -41,6 +46,11 @@ def nlu_evaluation(model, dataset, dataset_test, nb_examples, use_slots):
                                                                        input_masks=input_masks,
                                                                        intent_labels=intent_labels,
                                                                        slot_labels=slot_labels)
+
+            #if torch.cuda.device_count() > 1:
+            #    slot_logits = model.module.crf.decode(slot_logits, input_masks.byte())
+            #else:
+            #    slot_logits = model.crf.decode(slot_logits, input_masks.byte())
 
             # Slot Golden Truth/Predictions
             true_slot = slot_labels[0]
@@ -92,34 +102,87 @@ def nlu_evaluation(model, dataset, dataset_test, nb_examples, use_slots):
     return intent_accuracy, intent_prec, intent_rec, intent_f1
 
 
-def set_optimizer(model, args):
-    param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    ]
-    optimizer = AdamW(optimizer_grouped_parameters,
-                      lr=args.adam_lr,
-                      eps=args.adam_eps)
+def train(args, optimizer, model, dataset, subtask, writer, epoch, i, j):
+    optimizer.zero_grad()
+    model.train()
+    # Take batch by batch and move to cuda
+    batch, _ = dataset.next_batch(args.batch_size, subtask)
 
-    scheduler = WarmupLinearSchedule(optimizer,
-                                     warmup_steps=0,
-                                     t_total=2000)
+    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
+    input_texts = batch
+
+    input_ids = input_ids.to(device)#cuda()
+    lengths = lengths.to(device)#cuda()
+    token_type_ids = token_type_ids.to(device)#cuda()
+    input_masks = input_masks.to(device)#cuda()
+    attention_mask = attention_mask.to(device)#cuda()
+    intent_labels = intent_labels.to(device)#cuda()
+    slot_labels = slot_labels.to(device)#cuda()
+
+    if args.use_slots:
+        logits_intents, logits_slots, intent_loss, slot_loss = model(input_ids,
+                                                                     lengths=lengths,
+                                                                     input_masks=input_masks,
+                                                                     intent_labels=intent_labels,
+                                                                     slot_labels=slot_labels)
+        loss = intent_loss + slot_loss
+
+        writer.add_scalar('train_slot_loss_'+str(i), slot_loss.mean(), j*epoch)
+    else:
+        logits_intents, intent_loss = model(input_ids,
+                                            lengths=lengths,
+                                            input_masks=input_masks,
+                                            intent_labels=intent_labels)
+        loss = intent_loss
+
+    loss = loss.mean()
+    loss.backward()
+
+    writer.add_scalar('train_intent_loss_'+str(i), intent_loss.mean(), j*epoch)
+
+    optimizer.step()
+
+    if args.use_slots:
+        return intent_loss, slot_loss
+    else:
+        return intent_loss
+
+
+def evaluate_report(data_stream, lang, train_lang, args, dataset, model, writer, epoch, i, j):
+    test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, \
+    test_slot_rec, test_slot_f1 = nlu_evaluation(model,
+                                                 dataset,
+                                                 data_stream["stream"],
+                                                 data_stream["size"],
+                                                 args.use_slots)
+
+    print("----lang:", lang, " intent_acc:", test_intent_acc, " slot_f1:", test_slot_f1)
+
+    writer.add_scalar(train_lang+'_test_intent_acc_'+str(i)+'_'+lang, test_intent_acc, j*epoch)
+    writer.add_scalar(train_lang+'_test_intent_f1_'+str(i)+'_'+lang, test_intent_f1, j*epoch)
+    writer.add_scalar(train_lang+'_test_intent_prec_'+str(i)+'_'+lang, test_intent_prec, j*epoch)
+    writer.add_scalar(train_lang+'_test_intent_rec_'+str(i)+'_'+lang, test_intent_rec, j*epoch)
+    writer.add_scalar(train_lang+'_test_slot_prec_'+str(i)+'_'+lang, test_slot_prec, j*epoch)
+    writer.add_scalar(train_lang+'_test_slot_rec_'+str(i)+'_'+lang, test_slot_rec, j*epoch)
+    writer.add_scalar(train_lang+'_test_slot_f1_'+str(i)+'_'+lang, test_slot_f1, j*epoch)
+
+
+def set_optimizer(model, args):
+    optimizer = Adam(model.parameters(),
+                     betas=(args.beta_1, args.beta_2),
+                     eps=args.adam_eps,
+                     lr=args.adam_lr)
+
+    scheduler = SchedulerLR(optimizer,
+                            step_size=args.step_size,
+                            gamma=args.gamma)
 
     model.zero_grad()
 
     return optimizer, scheduler
 
 
-def run(args):
-    """
-    The main of training over different streams and evaluating different approaches in terms of catastrophic forgetting
-    and generalizability to new classes/languages
-    :param args:
-    :return:
-    """
-
+def set_out_dir(args):
     setups_dict = {"cil": "Cross-CIL_fixed-LL",
                    "cll": "Cross-LL_Fixed-CIL",
                    "cil-ll": "Cross-CIL_Cross-LL",
@@ -134,10 +197,25 @@ def run(args):
                         2: "randomclass"}
 
     if args.setup_opt == "multi":
-        out_dir = os.path.join(os.path.join(args.out_dir, args.setup_opt), "SEED_"+str(args.seed)+"/")
+        out_dir = os.path.join(os.path.join(args.out_dir, args.setup_opt),
+                               args.trans_model
+                               + "/SEED_"+str(args.seed)+"/")
     else:
-        out_dir = os.path.join(os.path.join(args.out_dir, args.setup_opt), order_lang_dict[args.order_lang] + "/" +
-                               order_class_dict[args.order_class] + "/SEED_"+str(args.seed)+"/")
+        out_dir = os.path.join(os.path.join(args.out_dir, args.setup_opt),
+                               args.trans_model + "/" +
+                               order_lang_dict[args.order_lang] + "/" +
+                               order_class_dict[args.order_class] +
+                               "/SEED_"+str(args.seed)+"/")
+    return out_dir
+
+
+def run(out_dir, args):
+    """
+    The main of training over different streams and evaluating different approaches in terms of catastrophic forgetting
+    and generalizability to new classes/languages
+    :param args:
+    :return:
+    """
 
     writer = SummaryWriter(os.path.join(out_dir, 'runs'))
 
@@ -171,30 +249,25 @@ def run(args):
                       slot_types=slot_types)
 
     # Incrementally adding new intents as they are added to the setup
-    if args.setup_opt == "cil":
-        eff_num_intent = args.num_intent_tasks
+    if args.setup_opt in ["cil", "cil-ll"]:
+        eff_num_intent = len(dataset.intent_types) #args.num_intent_tasks
         eff_num_slot = len(dataset.slot_types)  # to be changed later
-    elif args.setup_opt in ["cll", "multi"]:
+    else:
         eff_num_intent = len(dataset.intent_types)
         eff_num_slot = len(dataset.slot_types)
-    else:
-        eff_num_intent = args.num_intent_tasks
-        eff_num_slot = len(dataset.slot_types)  # to be changed later
 
     model = TransNLUCRF(model_trans,
                         eff_num_intent,
+                        device=device,
                         use_slots=args.use_slots,
                         num_slots=eff_num_slot)
 
-    if torch.cuda.device_count() > 0:
-        model.cuda()
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+
+    model.to(device)
 
     optimizer, scheduler = set_optimizer(model, args)
-
-
-    best_sum_metrics = 0
-    count = 0
-    best_sum_dev_metrics = 0
 
     if args.setup_opt == "cil":
         """ 
@@ -202,80 +275,120 @@ def run(args):
         - Train over every task of classes continuously independently for every language. 
         - We then average over all languages.
         """
-        for epoch in tqdm(range(args.epochs)):
-            optimizer.zero_grad()
-            gc.collect()
+        for lang in args.languages:
 
             number_steps = 0
-            for lang in args.language:
+            for epoch in tqdm(range(args.epochs)):
+                gc.collect()
                 # Iterating over the stream
                 for i, subtask in enumerate(dataset.train_stream[lang]):
                     number_steps += 1
-                    num_iterations = subtask["size"]// args.batch_size
+                    num_iterations = subtask["size"] // args.batch_size
+                    stream = subtask["stream"]
                     for j in range(num_iterations):
-                        # Take batch by batch and move to cuda
-                        batch, _ = dataset.next_batch(args.batch_size, subtask["stream"])
-                        intent_classes = subtask["intent_list"]
-
-                        input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, input_texts = batch
-
-                        input_ids = input_ids.cuda()
-                        lengths = lengths.cuda()
-                        token_type_ids = token_type_ids.cuda()
-                        input_masks = input_masks.cuda()
-                        attention_mask = attention_mask.cuda()
-                        intent_labels = intent_labels.cuda()
-                        slot_labels = slot_labels.cuda()
+                        if args.use_slots:
+                            intent_loss, slot_loss = train(args,
+                                                           optimizer,
+                                                           model,
+                                                           dataset,
+                                                           stream,
+                                                           writer,
+                                                           epoch,
+                                                           i,
+                                                           j)
+                        else:
+                            intent_loss = train(args,
+                                                optimizer,
+                                                model,
+                                                dataset,
+                                                stream,
+                                                writer,
+                                                epoch,
+                                                i,
+                                                j)
 
                         if args.use_slots:
-                            logits_intents, logits_slots, intent_loss, slot_loss = model(input_ids,
-                                                                                         lengths=lengths,
-                                                                                         input_masks=input_masks,
-                                                                                         intent_labels=intent_labels,
-                                                                                         slot_labels=slot_labels)
-                            loss = intent_loss + slot_loss
-
-                            writer.add_scalar('train_slot_loss_'+str(i), slot_loss.mean(), j*epoch)
+                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
+                                                                                               intent_loss.mean(),
+                                                                                               slot_loss.mean()))
                         else:
-                            logits_intents, intent_loss = model(input_ids,
-                                                                lengths=lengths,
-                                                                input_masks=input_masks,
-                                                                intent_labels=intent_labels)
-                            loss = intent_loss
+                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
 
-                        loss = loss.mean()
-                        loss.backward()
+                        if j % args.eval_steps == 0:
+                            evaluate_report(dataset.test_stream[lang][i],
+                                            lang,
+                                            lang,
+                                            args,
+                                            dataset,
+                                            model,
+                                            writer,
+                                            epoch,
+                                            i,
+                                            j)
 
-                        writer.add_scalar('train_intent_loss_'+str(i), intent_loss.mean(), j*epoch)
-
-                        optimizer.step()
-                        scheduler.step()
-
-                        if j > 0 and j % 100 == 0:
-                            if args.use_slots:
-                                print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                                   intent_loss.mean(),
-                                                                                                   slot_loss.mean()))
-                            else:
-                                print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
-                            test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, \
-                            test_slot_rec, test_slot_f1 = nlu_evaluation(model,
-                                                                         dataset.test_stream[lang][i]["stream"],
-                                                                         lang,
-                                                                         dataset.test_stream[lang][i]["size"],
-                                                                         args.use_slots)
-
-                            print("intent_classes:", intent_classes, " lang:", lang, " intent_acc:", test_intent_acc,
-                                  " slot_f1:", test_slot_f1)
-
-                            writer.add_scalar('test_slot_prec_'+str(i)+'_'+lang, test_slot_prec, j*epoch)
-                            writer.add_scalar('test_slot_rec_'+str(i)+'_'+lang, test_slot_rec, j*epoch)
-                            writer.add_scalar('test_slot_f1_'+str(i)+'_'+lang, test_slot_f1, j*epoch)
-
+                    scheduler.step()
                     print("------------------------------------")
                 print("/////////////////////////////////////////////")
 
+    elif args.setup_opt == "cil-ll":
+        number_steps = 0
+        for epoch in tqdm(range(args.epochs)):
+            gc.collect()
+
+            # Iterating over the stream of languages
+            for i, subtask in enumerate(dataset.train_stream):
+                num_iterations = subtask["size"] // args.batch_size
+                lang = subtask["lang"]
+                stream = subtask["stream"]
+                for j in range(num_iterations):
+                    number_steps += 1
+
+                    if args.use_slots:
+                        intent_loss, slot_loss = train(args,
+                                                       optimizer,
+                                                       model,
+                                                       dataset,
+                                                       stream,
+                                                       writer,
+                                                       epoch,
+                                                       i,
+                                                       j)
+                    else:
+                        intent_loss = train(args,
+                                            optimizer,
+                                            model,
+                                            dataset,
+                                            stream,
+                                            writer,
+                                            epoch,
+                                            i,
+                                            j)
+
+                    if args.use_slots:
+                        print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
+                                                                                           intent_loss.mean(),
+                                                                                           slot_loss.mean()))
+                    else:
+                        print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
+
+                    if j % args.eval_steps == 0:
+                        for lang in dataset.test_stream[i]:
+                            if dataset.test_stream[i][lang]["size"] > 0:
+                                print("dataset size:", dataset.test_stream[i][lang]["size"])
+                                print("dataset stream:", dataset.test_stream[i][lang]["stream"])
+                                evaluate_report(dataset.test_stream[i][lang],
+                                                lang,
+                                                lang,
+                                                args,
+                                                dataset,
+                                                model,
+                                                writer,
+                                                epoch,
+                                                i,
+                                                j)
+
+
+                scheduler.step()
     elif args.setup_opt == "cll":
         """
         Setup 2: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning" 
@@ -287,49 +400,32 @@ def run(args):
         for i, subtask in enumerate(dataset.train_stream):
             number_steps = 0
             for epoch in tqdm(range(args.epochs)):
-                optimizer.zero_grad()
                 gc.collect()
                 number_steps += 1
                 num_iterations = subtask["size"]//args.batch_size
-                lang = subtask["lang"]
+                train_lang = subtask["lang"]
+                stream = subtask["stream"]
                 for j in range(num_iterations):
-                    # Take batch by batch and move to cuda
-                    batch, _ = dataset.next_batch(args.batch_size, subtask["stream"])
-
-                    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
-                        input_texts = batch
-
-                    input_ids = input_ids.cuda()
-                    lengths = lengths.cuda()
-                    token_type_ids = token_type_ids.cuda()
-                    input_masks = input_masks.cuda()
-                    attention_mask = attention_mask.cuda()
-                    intent_labels = intent_labels.cuda()
-                    slot_labels = slot_labels.cuda()
-
                     if args.use_slots:
-                        logits_intents, logits_slots, intent_loss, slot_loss = model(input_ids,
-                                                                                     lengths=lengths,
-                                                                                     input_masks=input_masks,
-                                                                                     intent_labels=intent_labels,
-                                                                                     slot_labels=slot_labels)
-                        loss = intent_loss + slot_loss
-
-                        writer.add_scalar('train_slot_loss_'+str(i), slot_loss.mean(), j*epoch)
+                        intent_loss, slot_loss = train(args,
+                                                       optimizer,
+                                                       model,
+                                                       dataset,
+                                                       stream,
+                                                       writer,
+                                                       epoch,
+                                                       i,
+                                                       j)
                     else:
-                        logits_intents, intent_loss = model(input_ids,
-                                                            lengths=lengths,
-                                                            input_masks=input_masks,
-                                                            intent_labels=intent_labels)
-                        loss = intent_loss
-
-                    loss = loss.mean()
-                    loss.backward()
-
-                    writer.add_scalar('train_intent_loss_'+str(i), intent_loss.mean(), j*epoch)
-
-                    optimizer.step()
-                    scheduler.step()
+                        intent_loss = train(args,
+                                            optimizer,
+                                            model,
+                                            dataset,
+                                            stream,
+                                            writer,
+                                            epoch,
+                                            i,
+                                            j)
 
                     if args.use_slots:
                         print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
@@ -338,94 +434,24 @@ def run(args):
                     else:
                         print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
 
-                    if j > 0 and j % 200 == 0:
-                        test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, \
-                        test_slot_rec, test_slot_f1 = nlu_evaluation(model,
-                                                                     dataset,
-                                                                     dataset.test_stream[lang]["stream"],
-                                                                     dataset.test_stream[lang]["size"],
-                                                                     args.use_slots)
+                    if j % args.eval_steps == 0:
+                        for lang in dataset.test_stream:
+                            evaluate_report(dataset.test_stream[lang],
+                                            lang,
+                                            train_lang,
+                                            args,
+                                            dataset,
+                                            model,
+                                            writer,
+                                            epoch,
+                                            i,
+                                            j)
 
-                        print("lang:", lang, " intent_acc:", test_intent_acc, " slot_f1:", test_slot_f1)
-
-                        writer.add_scalar('test_slot_prec_'+str(i)+'_'+lang, test_slot_prec, j*epoch)
-                        writer.add_scalar('test_slot_rec_'+str(i)+'_'+lang, test_slot_rec, j*epoch)
-                        writer.add_scalar('test_slot_f1_'+str(i)+'_'+lang, test_slot_f1, j*epoch)
-
+                scheduler.step()
             print("------------------------------------")
-
-    elif args.setup_opt == "cil-ll":
-        for epoch in tqdm(range(args.epochs)):
-            optimizer.zero_grad()
-            gc.collect()
-
-            number_steps = 0
-            # Iterating over the stream of languages
-            for i, subtask in enumerate(dataset.train_stream):
-                number_steps += 1
-                num_iterations = subtask["size"]//args.batch_size
-                lang = subtask["lang"]
-                for j in range(num_iterations):
-                    # Take batch by batch and move to cuda
-                    batch, _ = dataset.next_batch(args.batch_size, subtask["stream"])
-                    intent_classes = subtask["intent_list"]
-
-                    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, input_texts = batch
-
-                    input_ids = input_ids.cuda()
-                    lengths = lengths.cuda()
-                    token_type_ids = token_type_ids.cuda()
-                    input_masks = input_masks.cuda()
-                    attention_mask = attention_mask.cuda()
-                    intent_labels = intent_labels.cuda()
-                    slot_labels = slot_labels.cuda()
-
-                    if args.use_slots:
-                        logits_intents, logits_slots, intent_loss, slot_loss = model(input_ids,
-                                                                                     lengths=lengths,
-                                                                                     input_masks=input_masks,
-                                                                                     intent_labels=intent_labels,
-                                                                                     slot_labels=slot_labels)
-                        loss = intent_loss + slot_loss
-
-                        writer.add_scalar('train_slot_loss_'+str(i), slot_loss.mean(), j*epoch)
-                    else:
-                        logits_intents, intent_loss = model(input_ids,
-                                                            lengths=lengths,
-                                                            input_masks=input_masks,
-                                                            intent_labels=intent_labels)
-                        loss = intent_loss
-
-                    loss = loss.mean()
-                    loss.backward()
-
-                    writer.add_scalar('train_intent_loss_'+str(i), intent_loss.mean(), j*epoch)
-
-                    optimizer.step()
-                    scheduler.step()
-
-                    if j > 0 and j % 100 == 0:
-                        if args.use_slots:
-                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                               intent_loss.mean(),
-                                                                                               slot_loss.mean()))
-                        else:
-                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
-                        test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, \
-                        test_slot_rec, test_slot_f1 = nlu_evaluation(model,
-                                                                     dataset,
-                                                                     dataset.test_stream[i]["stream"],
-                                                                     dataset.test_stream[i]["size"],
-                                                                     args.use_slots)
-
-                        writer.add_scalar('test_slot_prec_'+str(i)+'_'+lang, test_slot_prec, j*epoch)
-                        writer.add_scalar('test_slot_rec_'+str(i)+'_'+lang, test_slot_rec, j*epoch)
-                        writer.add_scalar('test_slot_f1_'+str(i)+'_'+lang, test_slot_f1, j*epoch)
 
     elif args.setup_opt == "multi":
         for epoch in tqdm(range(args.epochs)):
-            optimizer.zero_grad()
             gc.collect()
 
             number_steps = 0
@@ -434,47 +460,29 @@ def run(args):
             number_steps += 1
 
             num_iterations = dataset.train_stream["size"]//args.batch_size
-            print("num_iterations:", num_iterations)
-            print("dataset.train_stream['size']:", dataset.train_stream["size"])
+
             for j in range(num_iterations):
-                # Take batch by batch and move to cuda
-                batch, _ = dataset.next_batch(args.batch_size, task)
-
-                input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, input_texts = batch
-
-                input_ids = input_ids.cuda()
-                lengths = lengths.cuda()
-                token_type_ids = token_type_ids.cuda()
-                input_masks = input_masks.cuda()
-                attention_mask = attention_mask.cuda()
-                intent_labels = intent_labels.cuda()
-                slot_labels = slot_labels.cuda()
-
-                #print("input_texts:", input_texts)
 
                 if args.use_slots:
-                    logits_intents, logits_slots, intent_loss, slot_loss = model(input_ids,
-                                                                                 lengths=lengths,
-                                                                                 input_masks=input_masks,
-                                                                                 intent_labels=intent_labels,
-                                                                                 slot_labels=slot_labels)
-                    loss = intent_loss + slot_loss
-
-                    writer.add_scalar('train_slot_loss', slot_loss.mean(), j*epoch)
+                    intent_loss, slot_loss = train(args,
+                                                   optimizer,
+                                                   model,
+                                                   dataset,
+                                                   task,
+                                                   writer,
+                                                   epoch,
+                                                   0,
+                                                   j)
                 else:
-                    logits_intents, intent_loss = model(input_ids,
-                                                        lengths=lengths,
-                                                        input_masks=input_masks,
-                                                        intent_labels=intent_labels)
-                    loss = intent_loss
-
-                loss = loss.mean()
-                loss.backward()
-
-                writer.add_scalar('train_intent_loss', intent_loss.mean(), j*epoch)
-
-                optimizer.step()
-                scheduler.step()
+                    intent_loss = train(args,
+                                        optimizer,
+                                        model,
+                                        dataset,
+                                        task,
+                                        writer,
+                                        epoch,
+                                        0,
+                                        j)
 
                 if args.use_slots:
                     print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
@@ -482,19 +490,20 @@ def run(args):
                                                                                        slot_loss.mean()))
                 else:
                     print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-                if j > 0 and j % 100 == 0:
+                if j % args.eval_steps == 0:
                     for lang in dataset.test_stream:
-                        test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, \
-                        test_slot_rec, test_slot_f1 = nlu_evaluation(model,
-                                                                     dataset,
-                                                                     dataset.test_stream[lang]["data"],
-                                                                     dataset.test_stream[lang]["size"],
-                                                                     args.use_slots)
+                        evaluate_report(dataset.test_stream[lang],
+                                        lang,
+                                        "all",
+                                        args,
+                                        dataset,
+                                        model,
+                                        writer,
+                                        epoch,
+                                        0,
+                                        j)
 
-                        print(" lang:", lang, " intent_acc:", test_intent_acc, " slot_f1:", test_slot_f1)
-                        writer.add_scalar('test_slot_prec_'+lang, test_slot_prec, j*epoch)
-                        writer.add_scalar('test_slot_rec_'+lang, test_slot_rec, j*epoch)
-                        writer.add_scalar('test_slot_f1_'+lang, test_slot_f1, j*epoch)
+            scheduler.step()
 
 
 def set_seed(args):
@@ -508,8 +517,12 @@ def set_seed(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=str, default="", help="Root directory of the data")
-    parser.add_argument("--out-dir", type=str, default="",
-                        help="The root directory of the results for this project")
+
+    parser.add_argument("--out-dir", type=str, default="", help="The root directory of the results for this project")
+
+    parser.add_argument("--stats-file", type=str, default="stats.txt", help="Filename of the stats file")
+    parser.add_argument("--log-file", type=str, default="log.txt", help="Filename of the log file")
+
     parser.add_argument("--setup-opt", type=str, default="cll", help="Whether to pick setup "
                                                                      "cil: Cross-CIL with fixed LL, "
                                                                      "cll: Cross-LL with fixed CIL,"
@@ -546,13 +559,30 @@ if __name__ == "__main__":
     parser.add_argument("--num-lang-tasks", type=int, default=2, help="The number of lang per task")
 
     parser.add_argument("--epochs", type=int, default=10, help="The total number of epochs")
-    parser.add_argument("--batch-size", type=int, default=10, help="The total number of epochs")
+    parser.add_argument("--eval-steps", type=int, default=200, help="The total number of epochs for the model to evaluate")
+    parser.add_argument("--batch-size", type=int, default=32, help="The total number of epochs for the model to evaluate")
+    parser.add_argument("--step-size", type=int, default=7, help="The step size for the scheduler")
+    parser.add_argument("--gamma", type=float, default=0.1, help="gamma for the scheduler")
     parser.add_argument("--adam-lr", type=float, default=1e-03, help="The learning rate")
-    parser.add_argument("--adam-eps", type=float, default=1e-08, help="The learning rate")
+    parser.add_argument("--adam-eps", type=float, default=1e-08, help="epsilon")
+    parser.add_argument("--beta-1", type=float, default=0.9, help="beta_1 for Adam")
+    parser.add_argument("--beta-2", type=float, default=0.99, help="beta_2 for Adam")
     parser.add_argument("--seed", type=int, default=42, help="The total number of epochs")
 
     args = parser.parse_args()
     set_seed(args)
 
-    run(args)
+    stdoutOrigin = sys.stdout
+
+    out_dir = set_out_dir(args)
+    if not os.path.isdir(out_dir):
+        os.mkdir(out_dir)
+    sys.stdout = open(out_dir + args.log_file, "w")
+    logstats.init(out_dir + args.stats_file)
+    logstats.add_args('config', args)
+
+    run(out_dir, args)
+
+    sys.stdout.close()
+    sys.stdout = stdoutOrigin
 

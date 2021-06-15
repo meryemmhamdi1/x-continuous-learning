@@ -177,8 +177,8 @@ def _parse_tsv(data_path, tokenizer, lang, intent_set=[], slot_set=["O", "X"], s
                 continue
 
             token_part = json.loads(line[4])
-            tokens = token_part["tokenizations"][0]["tokens"]
-            #tokens = clean_text(token_part["tokenizations"][0]["tokens"], lang)
+            #tokens = token_part["tokenizations"][0]["tokens"]
+            tokens = clean_text(token_part["tokenizations"][0]["tokens"], lang)
             tokenSpans = token_part["tokenizations"][0]["tokenSpans"]
 
             slots = []
@@ -437,10 +437,10 @@ class Dataset:
             for lang in self.languages:
                 ordered_train, ordered_intents = self.partition_per_intent(self.train_set[lang])
                 ordered_dev, _ = self.partition_per_intent(self.dev_set[lang],
-                                                           ordered_keys=ordered_intents) # using the same intent types order as the train
+                                                           keys=ordered_intents) # using the same intent types order as the train
 
                 ordered_test, _ = self.partition_per_intent(self.test_set[lang],
-                                                            ordered_keys=ordered_intents) # using the same intent types order as the train
+                                                            keys=ordered_intents) # using the same intent types order as the train
 
                 for i in range(0, len(self.intent_types), num_intent_tasks):
                     int_task_train = []
@@ -453,11 +453,15 @@ class Dataset:
                         int_task_test.extend(ordered_test[intent])
 
                     self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                    "stream": AugmentedList(int_task_train, shuffle_between_epoch=True),
+                                                    "stream": AugmentedList(int_task_train,
+                                                                            shuffle_between_epoch=True),
                                                     "size": len(int_task_train)})
+
                     self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                  "stream": AugmentedList(int_task_dev, shuffle_between_epoch=True),
+                                                  "stream": AugmentedList(int_task_dev,
+                                                                          shuffle_between_epoch=True),
                                                   "size": len(int_task_dev)})
+
                     self.test_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
                                                    "stream": AugmentedList(int_task_test),
                                                    "size": len(int_task_test)})
@@ -472,12 +476,14 @@ class Dataset:
             ordered_langs = self.partition_per_lang(self.train_set)
 
             self.train_stream = [{"lang": lang,
-                                  "stream": AugmentedList(self.train_set[lang], shuffle_between_epoch=True),
+                                  "stream": AugmentedList(self.train_set[lang],
+                                                          shuffle_between_epoch=True),
                                   "size": len(self.train_set[lang])}
                                  for lang in ordered_langs]
 
             self.dev_stream = [{"lang": lang,
-                                "stream": AugmentedList(self.dev_set[lang], shuffle_between_epoch=True),
+                                "stream": AugmentedList(self.dev_set[lang],
+                                                        shuffle_between_epoch=True),
                                 "size": len(self.dev_set[lang])}
                                for lang in ordered_langs]
 
@@ -504,8 +510,11 @@ class Dataset:
 
             for lang in ordered_langs:
                 ordered_train[lang], ordered_intents[lang] = self.partition_per_intent(self.train_set[lang])
-                ordered_dev[lang], _ = self.partition_per_intent(self.dev_set[lang], ordered_keys=ordered_intents[lang]) # using the same intent types order as the train
-                ordered_test[lang], _ = self.partition_per_intent(self.test_set[lang], ordered_keys=ordered_intents[lang]) # using the same intent types order as the train
+                ordered_dev[lang], _ = self.partition_per_intent(self.dev_set[lang],
+                                                                 keys=ordered_intents[lang]) # using the same intent types order as train
+
+                ordered_test[lang], _ = self.partition_per_intent(self.test_set[lang],
+                                                                  keys=ordered_intents[lang]) # using the same intent types order as train
 
             # CIL/LL Matrix consists of language rows and intent columns
             if self.setup_3 == "intents": # Horizontally goes linearly over all intents of each languages batch before moving to the next languages batch
@@ -514,7 +523,7 @@ class Dataset:
                     for i in range(0, len(self.intent_types), num_intent_tasks):
                         int_lang_task_train = []
                         int_lang_task_dev = []
-                        int_lang_task_test = []
+                        int_lang_task_test = {lang: [] for lang in self.languages}
 
                         intent_batches = []
                         for lang in lang_batch:
@@ -523,7 +532,7 @@ class Dataset:
                             for intent in intent_batch:
                                 int_lang_task_train += ordered_train[lang][intent]
                                 int_lang_task_dev += ordered_dev[lang][intent]
-                                int_lang_task_test += ordered_test[lang][intent]
+                                int_lang_task_test[lang].extend(ordered_test[lang][intent])
 
                         self.train_stream.append({"lang": lang_batch,
                                                   "intent": intent_batches,
@@ -537,17 +546,18 @@ class Dataset:
                                                                         shuffle_between_epoch=True),
                                                 "size": len(int_lang_task_dev)})
 
-                        self.test_stream.append({"lang": lang_batch,
-                                                 "intent": intent_batches,
-                                                 "stream": AugmentedList(int_lang_task_test),
-                                                 "size": len(int_lang_task_test)})
+                        self.test_stream.append({lang: {
+                                                  "intent": intent_batches,
+                                                  "stream": AugmentedList(int_lang_task_test[lang]),
+                                                  "size": len(int_lang_task_test[lang])}
+                                                 for lang in int_lang_task_test})
 
             else: # Vertically goes linearly over all languages of each intent batch before moving to the next intents batch
                 for i in range(0, len(self.intent_types), num_intent_tasks):
                     for j in range(0, len(ordered_langs), num_lang_tasks):
                         int_lang_task_train = []
                         int_lang_task_dev = []
-                        int_lang_task_test = []
+                        int_lang_task_test = {lang: [] for lang in self.languages}
                         lang_batch = ordered_langs[j:j+num_lang_tasks]
                         intent_batches = []
                         for lang in lang_batch:
@@ -556,7 +566,7 @@ class Dataset:
                             for intent in intent_batch:
                                 int_lang_task_train += ordered_train[lang][intent]
                                 int_lang_task_dev += ordered_dev[lang][intent]
-                                int_lang_task_test += ordered_test[lang][intent]
+                                int_lang_task_test[lang].extend(ordered_test[lang][intent])
 
                         self.train_stream.append({"lang": lang_batch,
                                                   "intent": intent_batches,
@@ -570,10 +580,11 @@ class Dataset:
                                                                         shuffle_between_epoch=True),
                                                 "size": len(int_lang_task_dev)})
 
-                        self.test_stream.append({"lang": lang_batch,
-                                                 "intent": intent_batches,
-                                                 "stream": AugmentedList(int_lang_task_test),
-                                                 "size": len(int_lang_task_test)})
+                        self.test_stream.append({lang: {
+                                                  "intent": intent_batches,
+                                                  "stream": AugmentedList(int_lang_task_test[lang]),
+                                                  "size": len(int_lang_task_test[lang])}
+                                                 for lang in int_lang_task_test})
 
         elif self.setup_option == "multi":
             """
@@ -583,11 +594,13 @@ class Dataset:
             train_set_all = []
             for lang in self.train_set:
                 train_set_all += self.train_set[lang]
-            self.train_stream = {"data": AugmentedList(train_set_all, shuffle_between_epoch=True),
+            self.train_stream = {"data": AugmentedList(train_set_all,
+                                                       shuffle_between_epoch=True),
                                  "size": len(train_set_all)}
 
             dev_set_all = [self.dev_set[lang] for lang in self.languages]
-            self.dev_stream = {"data": AugmentedList(dev_set_all, shuffle_between_epoch=True),
+            self.dev_stream = {"data": AugmentedList(dev_set_all,
+                                                     shuffle_between_epoch=True),
                                "size": len(dev_set_all)}
 
             self.test_stream = {}
@@ -616,42 +629,42 @@ class Dataset:
 
         return process_egs_shuffled
 
-    def partition_per_intent(self, processed_egs, ordered_keys=None):
+    def partition_per_intent(self, processed_egs, keys=None):
         intent_dict = {intent: [] for intent in self.intent_types}
         for eg in processed_egs:
             intent_dict[eg[2]].append(eg)
 
-        if ordered_keys:
-            return [intent_dict[key] for key in ordered_keys], ordered_keys
+        if keys:
+            return {k: intent_dict[k] for k in keys}, keys
 
-        if self.order_class == 0: # decreasing frequency
-            new_dict = sorted(intent_dict, key=lambda k: len(intent_dict[k]), reverse=True)
-            return new_dict, ordered_keys
-
-        elif self.order_class == 1: # increasing frequency
-            new_dict = sorted(intent_dict, key=lambda k: len(intent_dict[k]))
-            ordered_keys = new_dict.keys()
-            return new_dict, ordered_keys
-        else: # random frequency
+        if self.order_class == 2:
             keys = intent_dict.keys()
             random.shuffle(keys)
-            new_dict = {key: intent_dict[key] for key in keys}
-            return new_dict, ordered_keys
+        else:
+            reverse_flag = False
+            if self.order_class == 0:
+                reverse_flag = True
+
+            keys = sorted(intent_dict,
+                          key=lambda k: len(intent_dict[k]),
+                          reverse=reverse_flag)
+
+        ordered_dict = {k: intent_dict[k] for k in keys}
+        return ordered_dict, keys
 
     def partition_per_lang(self, train_set):
-        if self.order_class == 0: # decreasing frequency
-            sorted_langs = sorted(train_set, key=lambda lang: len(train_set[lang]), reverse=True)
-            print("sorted_langs:", sorted_langs)
-            return sorted_langs
+        if self.order_class == 2:
+            ordered_langs = train_set.keys()
+            random.shuffle(ordered_langs)
+        else:
+            reverse_flag = False
+            if self.order_lang == 0:# decreasing frequency
+                reverse_flag = True
 
-        elif self.order_class == 1: # increasing frequency
-            sorted_langs = sorted(train_set, key=lambda lang: len(train_set[lang]))
-            return sorted_langs
-
-        else: # random frequency
-            keys = train_set.keys()
-            random.shuffle(keys)
-            return keys
+            ordered_langs = sorted(train_set,
+                                  key=lambda lang: len(train_set[lang]),
+                                  reverse=reverse_flag)
+        return ordered_langs
 
     def next_batch(self, batch_size, data_split):
         """

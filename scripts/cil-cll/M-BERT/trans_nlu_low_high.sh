@@ -3,10 +3,11 @@
 . scripts/paths.config
 python main.py --data-root $data_root \
                --out-dir $out_dir \
-               --setup-opt "multi" \
-               --order-class 0 \
-               --order-lang 0 \
-               --trans-model $trans_model \
+               --setup-opt "cil-ll" \
+               --setup-3 "intents" \
+               --order-class 1 \
+               --order-lang 1 \
+               --trans-model "BertBaseMultilingualCased" \
                --model-root $model_root \
                --use-slots \
                --languages "de" "en" "es" "fr" "hi" "th" \

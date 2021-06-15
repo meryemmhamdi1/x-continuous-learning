@@ -3,10 +3,10 @@
 . scripts/paths.config
 python main.py --data-root $data_root \
                --out-dir $out_dir \
-               --setup-opt "multi" \
-               --order-class 0 \
+               --setup-opt "cil" \
+               --order-class 1 \
                --order-lang 0 \
-               --trans-model $trans_model \
+               --trans-model "XLMRoberta_base" \
                --model-root $model_root \
                --use-slots \
                --languages "de" "en" "es" "fr" "hi" "th" \

@@ -3,10 +3,10 @@
 . scripts/paths.config
 python main.py --data-root $data_root \
                --out-dir $out_dir \
-               --setup-opt "cll" \
-               --order-class 0 \
+               --setup-opt "cil" \
+               --order-class 2 \
                --order-lang 0 \
-               --trans-model $trans_model \
+               --trans-model "XLMRoberta_base" \
                --model-root $model_root \
                --use-slots \
                --languages "de" "en" "es" "fr" "hi" "th" \
@@ -16,4 +16,7 @@ python main.py --data-root $data_root \
                --batch-size $batch_size \
                --adam-lr $adam_lr \
                --adam-eps $adam_eps \
+               --beta-1 $beta_1 \
+               --beta-2 $beta_2 \
+               --eval-steps $eval_steps \
                --seed 42
