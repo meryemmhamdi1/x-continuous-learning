@@ -5,8 +5,8 @@ python main.py --data-root $data_root \
                --out-dir $out_dir \
                --setup-opt "cil-ll" \
                --setup-3 "intents" \
-               --order-class 1 \
                --order-lang 1 \
+               --order-class 1 \
                --trans-model "BertBaseMultilingualCased" \
                --model-root $model_root \
                --use-slots \

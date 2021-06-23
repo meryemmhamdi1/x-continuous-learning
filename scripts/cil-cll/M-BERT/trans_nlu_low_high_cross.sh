@@ -5,7 +5,7 @@ python main.py --data-root $data_root \
                --out-dir $out_dir \
                --setup-opt "cil-ll" \
                --setup-3 "intents" \
-               --order-lang 0 \
+               --order-lang 1 \
                --order-class 0 \
                --trans-model "BertBaseMultilingualCased" \
                --model-root $model_root \

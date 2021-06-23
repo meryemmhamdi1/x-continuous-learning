@@ -5,9 +5,9 @@ python main.py --data-root $data_root \
                --out-dir $out_dir \
                --setup-opt "cil-ll" \
                --setup-3 "intents" \
-               --order-lang 0 \
-               --order-class 0 \
-               --trans-model "BertBaseMultilingualCased" \
+               --order-class 2 \
+               --order-lang 2 \
+               --trans-model "XLMRoberta_base" \
                --model-root $model_root \
                --use-slots \
                --languages "de" "en" "es" "fr" "hi" "th" \

@@ -6,7 +6,7 @@ python main.py --data-root $data_root \
                --setup-opt "cil-ll" \
                --setup-3 "intents" \
                --order-lang 0 \
-               --order-class 0 \
+               --order-class 1 \
                --trans-model "BertBaseMultilingualCased" \
                --model-root $model_root \
                --use-slots \
