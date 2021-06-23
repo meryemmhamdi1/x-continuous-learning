@@ -11,7 +11,7 @@ domain_types = ["Alarm",
                 "Timer",
                 "Weather"]
 
-# 117 intent types => actual only 14 intent types over each languages and each splits
+# 117 intent types => actual only 114 intent types over each languages and each splits
 intent_types = ["alarm:CREATE_ALARM",
                 "alarm:DELETE_ALARM",
                 "alarm:GET_ALARM",

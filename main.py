@@ -16,6 +16,9 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score, precision_score, recall_score
 import sys
 import logstats
+import os
+import pickle
+from collections import Counter
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -80,6 +83,7 @@ def nlu_evaluation(model, dataset, dataset_test, nb_examples, use_slots):
         # Intent Golden Truth/Predictions
         true_intent = intent_labels.squeeze().item()
         pred_intent = intent_logits.squeeze().max(0)[1]
+        #print("true_intent:", true_intent, " pred_intent:", pred_intent)
 
         intent_corrects += int(pred_intent == true_intent)
 
@@ -148,7 +152,7 @@ def train(args, optimizer, model, dataset, subtask, writer, epoch, i, j):
         return intent_loss
 
 
-def evaluate_report(data_stream, lang, train_lang, args, dataset, model, writer, epoch, i, j):
+def evaluate_report(data_stream, k, train_lang, lang, args, dataset, model, writer, i, num_steps):
     test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, \
     test_slot_rec, test_slot_f1 = nlu_evaluation(model,
                                                  dataset,
@@ -156,15 +160,23 @@ def evaluate_report(data_stream, lang, train_lang, args, dataset, model, writer,
                                                  data_stream["size"],
                                                  args.use_slots)
 
-    print("----lang:", lang, " intent_acc:", test_intent_acc, " slot_f1:", test_slot_f1)
+    print("----size", data_stream["size"], " k:", k, " i:", i, " lang:", lang, " intent_acc:", test_intent_acc, test_intent_f1, test_intent_prec, test_intent_rec, " slot_f1:", test_slot_f1)
 
-    writer.add_scalar(train_lang+'_test_intent_acc_'+str(i)+'_'+lang, test_intent_acc, j*epoch)
-    writer.add_scalar(train_lang+'_test_intent_f1_'+str(i)+'_'+lang, test_intent_f1, j*epoch)
-    writer.add_scalar(train_lang+'_test_intent_prec_'+str(i)+'_'+lang, test_intent_prec, j*epoch)
-    writer.add_scalar(train_lang+'_test_intent_rec_'+str(i)+'_'+lang, test_intent_rec, j*epoch)
-    writer.add_scalar(train_lang+'_test_slot_prec_'+str(i)+'_'+lang, test_slot_prec, j*epoch)
-    writer.add_scalar(train_lang+'_test_slot_rec_'+str(i)+'_'+lang, test_slot_rec, j*epoch)
-    writer.add_scalar(train_lang+'_test_slot_f1_'+str(i)+'_'+lang, test_slot_f1, j*epoch)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_intent_acc_'+str(k)+'_'+lang, test_intent_acc, num_steps)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_intent_f1_'+str(k)+'_'+lang, test_intent_f1, num_steps)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_intent_prec_'+str(k)+'_'+lang, test_intent_prec, num_steps)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_intent_rec_'+str(k)+'_'+lang, test_intent_rec, num_steps)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_slot_prec_'+str(k)+'_'+lang, test_slot_prec, num_steps)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_slot_rec_'+str(k)+'_'+lang, test_slot_rec, num_steps)
+    writer.add_scalar(train_lang+'_'+str(i)+'_test_slot_f1_'+str(k)+'_'+lang, test_slot_f1, num_steps)
+
+    return {train_lang+'_'+str(i)+'_test_intent_acc_'+str(k)+'_'+lang: test_intent_acc,
+            train_lang+'_'+str(i)+'_test_intent_f1_'+str(k)+'_'+lang: test_intent_f1,
+            train_lang+'_'+str(i)+'_test_intent_prec_'+str(k)+'_'+lang: test_intent_prec,
+            train_lang+'_'+str(i)+'_test_intent_rec_'+str(k)+'_'+lang: test_intent_rec,
+            train_lang+'_'+str(i)+'_test_slot_prec_'+str(k)+'_'+lang: test_slot_prec,
+            train_lang+'_'+str(i)+'_test_slot_rec_'+str(k)+'_'+lang: test_slot_rec,
+            train_lang+'_'+str(i)+'_test_slot_f1_'+str(k)+'_'+lang: test_slot_f1}
 
 
 def set_optimizer(model, args):
@@ -272,20 +284,29 @@ def run(out_dir, args):
     if args.setup_opt == "cil":
         """ 
         Setup 1: Cross-CIL, Fixed LL: "Monolingual CIL":
-        - Train over every task of classes continuously independently for every language. 
+        - Trnt(ain over every task of classes continuously independently for every language. 
         - We then average over all languages.
         """
-        for lang in args.languages:
 
-            number_steps = 0
-            for epoch in tqdm(range(args.epochs)):
-                gc.collect()
-                # Iterating over the stream
-                for i, subtask in enumerate(dataset.train_stream[lang]):
-                    number_steps += 1
-                    num_iterations = subtask["size"] // args.batch_size
-                    stream = subtask["stream"]
-                    for j in range(num_iterations):
+        for lang in args.languages:
+            #start = 0
+            #i = start
+            # Iterating over the stream
+            for i, subtask in enumerate(dataset.train_stream[lang]):
+            #for subtask in dataset.train_stream[lang][start:]:
+                num_steps = 0
+                test_subtask = dataset.train_stream[lang][i]
+                num_iter = subtask["size"] // args.batch_size
+                stream = subtask["stream"]
+                if subtask["size"] == 0:
+                    print("Skipped task:", i, " in lang:", lang)
+                    continue
+                    
+                for epoch in tqdm(range(args.epochs)):
+                    gc.collect()
+                    num_steps += 1
+
+                    for j in range(num_iter):
                         if args.use_slots:
                             intent_loss, slot_loss = train(args,
                                                            optimizer,
@@ -314,35 +335,63 @@ def run(out_dir, args):
                         else:
                             print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
 
-                        if j % args.eval_steps == 0:
-                            evaluate_report(dataset.test_stream[lang][i],
-                                            lang,
-                                            lang,
-                                            args,
-                                            dataset,
-                                            model,
-                                            writer,
-                                            epoch,
-                                            i,
-                                            j)
+                metrics = {k: {} for k in range(0, i+1)}
+                for k in range(0, i+1):
+                    if dataset.test_stream[lang][k]["size"] > 0:
+                        metrics[k] = evaluate_report(dataset.test_stream[lang][k],
+                                                     k,
+                                                     lang,
+                                                     lang,
+                                                     args,
+                                                     dataset,
+                                                     model,
+                                                     writer,
+                                                     i,
+                                                     num_steps)
+                    else:
+                        print("Skipped task:", k, " in lang:", lang)
 
-                    scheduler.step()
-                    print("------------------------------------")
-                print("/////////////////////////////////////////////")
+                with open(out_dir+"final_metrics_"+lang+"_trainsubtask_"+str(i)+".pickle", "wb") as output_file:
+                    pickle.dump(metrics, output_file)
+
+                #i += 1
+            print("------------------------------------")
+            for k in range(0, len(dataset.train_stream[lang])):
+                if dataset.test_stream[lang][k]["size"] > 0:
+                    metrics = evaluate_report(dataset.test_stream[lang][k],
+                                              k,
+                                              lang,
+                                              lang,
+                                              args,
+                                              dataset,
+                                              model,
+                                              writer,
+                                              i,
+                                              num_steps)
+                else:
+                    print("Skipped task:", k, " in lang:", lang)
+
+            with open(out_dir+"final_metrics_"+lang+".pickle", "wb") as output_file:
+                pickle.dump(metrics, output_file)
+            print("/////////////////////////////////////////////")
 
     elif args.setup_opt == "cil-ll":
-        number_steps = 0
-        for epoch in tqdm(range(args.epochs)):
-            gc.collect()
+        for i, subtask in enumerate(dataset.train_stream):
+            num_steps = 0
+            # Iterating over the stream of languages and intents
 
-            # Iterating over the stream of languages
-            for i, subtask in enumerate(dataset.train_stream):
-                num_iterations = subtask["size"] // args.batch_size
+            if subtask["size"] == 0:
+                print("Skipped task:", i)
+                continue
+
+            for epoch in tqdm(range(args.epochs)):
+                gc.collect()
+                num_steps += 1
+                num_iter = subtask["size"] // args.batch_size
                 lang = subtask["lang"]
                 stream = subtask["stream"]
-                for j in range(num_iterations):
-                    number_steps += 1
 
+                for j in range(num_iter):
                     if args.use_slots:
                         intent_loss, slot_loss = train(args,
                                                        optimizer,
@@ -373,22 +422,40 @@ def run(out_dir, args):
 
                     if j % args.eval_steps == 0:
                         for lang in dataset.test_stream[i]:
-                            if dataset.test_stream[i][lang]["size"] > 0:
-                                print("dataset size:", dataset.test_stream[i][lang]["size"])
-                                print("dataset stream:", dataset.test_stream[i][lang]["stream"])
-                                evaluate_report(dataset.test_stream[i][lang],
-                                                lang,
-                                                lang,
-                                                args,
-                                                dataset,
-                                                model,
-                                                writer,
-                                                epoch,
-                                                i,
-                                                j)
+                            for k in range(0, i+1):
+                                if dataset.test_stream[k][lang]["size"] > 0:
+                                    evaluate_report(dataset.test_stream[k][lang],
+                                                    k,
+                                                    lang,
+                                                    lang,
+                                                    args,
+                                                    dataset,
+                                                    model,
+                                                    writer,
+                                                    i,
+                                                    num_steps)
+                                else:
+                                    print("Skipped task:", k, " in lang:", lang)
 
+            for lang in dataset.test_stream[i]:
+                    for k in range(0, i+1):
+                        if dataset.test_stream[k][lang]["size"] > 0:
+                            metrics = evaluate_report(dataset.test_stream[k][lang],
+                                                      k,
+                                                      lang,
+                                                      lang,
+                                                      args,
+                                                      dataset,
+                                                      model,
+                                                      writer,
+                                                      i,
+                                                      num_steps)
+                        else:
+                            print("Skipped task:", k, " in lang:", lang)
 
-                scheduler.step()
+            with open(out_dir+"final_metrics_"+str(i)+".pickle", "wb") as output_file:
+                pickle.dump(metrics, output_file)
+
     elif args.setup_opt == "cll":
         """
         Setup 2: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning" 
@@ -398,14 +465,14 @@ def run(out_dir, args):
 
         # Iterating over the stream of languages
         for i, subtask in enumerate(dataset.train_stream):
-            number_steps = 0
+            num_steps = 0
             for epoch in tqdm(range(args.epochs)):
                 gc.collect()
-                number_steps += 1
-                num_iterations = subtask["size"]//args.batch_size
+                num_steps += 1
+                num_iter = subtask["size"]//args.batch_size
                 train_lang = subtask["lang"]
                 stream = subtask["stream"]
-                for j in range(num_iterations):
+                for j in range(num_iter):
                     if args.use_slots:
                         intent_loss, slot_loss = train(args,
                                                        optimizer,
@@ -427,41 +494,55 @@ def run(out_dir, args):
                                             i,
                                             j)
 
-                    if args.use_slots:
-                        print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                           intent_loss.mean(),
-                                                                                           slot_loss.mean()))
-                    else:
-                        print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
                     if j % args.eval_steps == 0:
-                        for lang in dataset.test_stream:
-                            evaluate_report(dataset.test_stream[lang],
-                                            lang,
-                                            train_lang,
-                                            args,
-                                            dataset,
-                                            model,
-                                            writer,
-                                            epoch,
-                                            i,
-                                            j)
+                        if args.use_slots:
+                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
+                                                                                               intent_loss.mean(),
+                                                                                               slot_loss.mean()))
+                        else:
+                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
 
-                scheduler.step()
+                for lang in dataset.test_stream:
+                    metrics = evaluate_report(dataset.test_stream[lang],
+                                              0,
+                                              train_lang,
+                                              lang,
+                                              args,
+                                              dataset,
+                                              model,
+                                              writer,
+                                              i,
+                                              num_steps)
+
             print("------------------------------------")
+            metrics = {lang: {} for lang in dataset.test_stream}
+            for lang in dataset.test_stream:
+                metrics[lang] = evaluate_report(dataset.test_stream[lang],
+                                          0,
+                                          train_lang,
+                                          lang,
+                                          args,
+                                          dataset,
+                                          model,
+                                          writer,
+                                          i,
+                                          num_steps)
+
+            with open(out_dir+"final_metrics_"+str(i)+".pickle", "wb") as output_file:
+                pickle.dump(metrics, output_file)
 
     elif args.setup_opt == "multi":
         for epoch in tqdm(range(args.epochs)):
             gc.collect()
 
-            number_steps = 0
+            num_steps = 0
             # There is only one task here no subtasks
             task = dataset.train_stream["data"]
-            number_steps += 1
+            num_steps += 1
 
-            num_iterations = dataset.train_stream["size"]//args.batch_size
+            num_iter = dataset.train_stream["size"]//args.batch_size
 
-            for j in range(num_iterations):
+            for j in range(num_iter):
 
                 if args.use_slots:
                     intent_loss, slot_loss = train(args,
@@ -492,18 +573,47 @@ def run(out_dir, args):
                     print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
                 if j % args.eval_steps == 0:
                     for lang in dataset.test_stream:
-                        evaluate_report(dataset.test_stream[lang],
-                                        lang,
-                                        "all",
-                                        args,
-                                        dataset,
-                                        model,
-                                        writer,
-                                        epoch,
-                                        0,
-                                        j)
+                        metrics = evaluate_report(dataset.test_stream[lang],
+                                                  0,
+                                                  "all",
+                                                  lang,
+                                                  args,
+                                                  dataset,
+                                                  model,
+                                                  writer,
+                                                  0,
+                                                  num_steps)
 
-            scheduler.step()
+            for lang in dataset.test_stream:
+                metrics = evaluate_report(dataset.test_stream[lang],
+                                          0,
+                                          "all",
+                                          lang,
+                                          args,
+                                          dataset,
+                                          model,
+                                          writer,
+                                          0,
+                                          num_steps)
+
+                with open(out_dir+"epoch_"+str(epoch)+"_metrics_"+lang+".pickle", "wb") as output_file:
+                    pickle.dump(metrics, output_file)
+
+        print("Evaluation at the end of all epochs")
+        for lang in dataset.test_stream:
+            metrics = evaluate_report(dataset.test_stream[lang],
+                                      0,
+                                      "all",
+                                      lang,
+                                      args,
+                                      dataset,
+                                      model,
+                                      writer,
+                                      0,
+                                      num_steps)
+
+            with open(out_dir+"final_metrics_"+lang+".pickle", "wb") as output_file:
+                pickle.dump(metrics, output_file)
 
 
 def set_seed(args):
@@ -577,9 +687,12 @@ if __name__ == "__main__":
     out_dir = set_out_dir(args)
     if not os.path.isdir(out_dir):
         os.mkdir(out_dir)
+
     sys.stdout = open(out_dir + args.log_file, "w")
     logstats.init(out_dir + args.stats_file)
+    config_path = os.path.join(out_dir, 'config.json')
     logstats.add_args('config', args)
+    logstats.write_json(vars(args), config_path)
 
     run(out_dir, args)
 

@@ -130,3 +130,6 @@ dmypy.json
 
 .idea/*
 sync_scripts/*
+scratch.py
+ideas.txt
+

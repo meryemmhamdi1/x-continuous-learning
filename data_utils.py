@@ -317,16 +317,29 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
     To process the flat representation of MTOP by taking the top level in the hierarchical representation
     """
     process_egs = []
+    distinct_intents = []
+    distinct_domains = []
+    distinct_slots = []
+    domain_intent_slot_dict = {}
     with open(data_path) as tsv_file:
         reader = csv.reader(tsv_file, delimiter="\t")
         for i, line in enumerate(reader):
             domain = line[3]
+            if domain not in domain_intent_slot_dict:
+                domain_intent_slot_dict.update({domain: {}})
+
             intent = domain+":"+line[0].split(":")[1]
             slot_splits = re.split(',|，', line[1])
             utterance = line[2]
 
             if intent not in intent_set:
                 intent_set.append(intent)
+
+            if intent not in distinct_intents:
+                distinct_intents.append(intent)
+
+            if domain not in distinct_domains:
+                distinct_domains.append(domain)
 
             locale = line[4]
             decoupled_form = line[5]
@@ -348,6 +361,15 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
             for tokenspan in tokenSpans:
                 nolabel = True
                 for slot_item in slot_line:
+                    if slot_item["slot"] not in distinct_slots:
+                        distinct_slots.append(slot_item["slot"])
+
+                    if intent not in domain_intent_slot_dict[domain]:
+                        domain_intent_slot_dict[domain].update({intent: []})
+
+                    if slot_item["slot"] not in domain_intent_slot_dict[domain][intent]:
+                        domain_intent_slot_dict[domain][intent].append(slot_item["slot"])
+
                     start = tokenspan["start"]
                     # if int(start) >= int(slot_item["start"]) and int(start) < int(slot_item["end"]):
                     if int(start) == int(slot_item["start"]):
@@ -367,8 +389,8 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
                 if nolabel:
                     slots.append("O")
 
-            if i<=2:
-                print("utterance:", utterance, " slots:", slots, " tokens: ", tokens, " intent:", intent)
+            #if i<=2:
+            #    print("utterance:", utterance, " slots:", slots, " tokens: ", tokens, " intent:", intent)
 
             assert len(slots) == len(tokens)
 
@@ -388,6 +410,12 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
             assert len(sub_slots) == len(sub_tokens)
 
             process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots, i))
+
+    #print("++++++++++++++++distinct_intents:", distinct_intents, " len(distinct_intents):", len(distinct_intents))
+    #print("++++++++++++++++distinct_domains:", distinct_domains, " len(distinct_domains):", len(distinct_domains))
+    #print("++++++++++++++++distinct_slots:", distinct_slots, " len(distinct_slots):", len(distinct_slots))
+    #print("++++++++++++++++domain_intent_slot_dict:", domain_intent_slot_dict)
+    #exit(0)
 
     return process_egs
 
