@@ -132,4 +132,6 @@ dmypy.json
 sync_scripts/*
 scratch.py
 ideas.txt
+scripts/paths.config
+scripts/paths_end.config
 

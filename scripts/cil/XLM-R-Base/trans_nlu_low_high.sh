@@ -19,4 +19,5 @@ python main.py --data-root $data_root \
                --beta-1 $beta_1 \
                --beta-2 $beta_2 \
                --eval-steps $eval_steps \
+               --no-debug \
                --seed 42

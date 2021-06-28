@@ -6,7 +6,7 @@ python main.py --data-root $data_root \
                --setup-opt "multi" \
                --order-class 0 \
                --order-lang 0 \
-               --trans-model $trans_model \
+               --trans-model "BertBaseMultilingualCased" \
                --model-root $model_root \
                --use-slots \
                --languages "de" "en" "es" "fr" "hi" "th" \
@@ -19,4 +19,5 @@ python main.py --data-root $data_root \
                --beta-1 $beta_1 \
                --beta-2 $beta_2 \
                --eval-steps $eval_steps \
+               --no-debug \
                --seed 42

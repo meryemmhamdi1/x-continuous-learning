@@ -3,12 +3,11 @@
 . scripts/paths.config
 python main.py --data-root $data_root \
                --out-dir $out_dir \
-               --setup-opt "cll" \
+               --setup-opt "cil-other" \
                --order-class 0 \
-               --order-lang 2 \
-               --trans-model "XLMRoberta_base" \
+               --order-lang 0 \
+               --trans-model "BertBaseMultilingualCased" \
                --model-root $model_root \
-               --use-slots \
                --languages "de" "en" "es" "fr" "hi" "th" \
                --num-intent-tasks $num_intent_tasks \
                --num-lang-tasks $num_lang_tasks \

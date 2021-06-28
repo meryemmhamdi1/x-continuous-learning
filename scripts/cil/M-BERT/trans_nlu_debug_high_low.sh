@@ -2,13 +2,15 @@
 . scripts/hyperparam.config
 . scripts/paths.config
 python main.py --data-root $data_root \
-               --out-dir $out_dir \
-               --setup-opt "cll" \
-               --order-class 0 \
-               --order-lang 2 \
-               --trans-model "XLMRoberta_base" \
-               --model-root $model_root \
                --use-slots \
+               --verbose \
+               --out-dir $out_dir \
+               --setup-opt "cil" \
+               --order-class 0 \
+               --order-lang 0 \
+               --verbose \
+               --trans-model "BertBaseMultilingualCased" \
+               --model-root $model_root \
                --languages "de" "en" "es" "fr" "hi" "th" \
                --num-intent-tasks $num_intent_tasks \
                --num-lang-tasks $num_lang_tasks \
@@ -19,5 +21,4 @@ python main.py --data-root $data_root \
                --beta-1 $beta_1 \
                --beta-2 $beta_2 \
                --eval-steps $eval_steps \
-               --no-debug \
                --seed 42
