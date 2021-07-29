@@ -23,7 +23,8 @@ class CRFLayer(nn.Module):
         self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).to(device)
 
         nn.init.xavier_normal_(self.transitions)
-        self.params = {"transitions": self.transitions, "start_transitions": self.start_transitions,
+        self.params = {"transitions": self.transitions,
+                       "start_transitions": self.start_transitions,
                        "stop_transitions": self.stop_transitions}
 
         #print("INIT CRF self.training:", self.training)

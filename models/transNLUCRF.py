@@ -2,8 +2,30 @@ import torch.nn as nn
 import torch
 from models.crf import CRFLayer
 from torchcrf import CRF
+import numpy as np
 
 SLOT_PAD = 0
+
+
+def _make_mask(lengths):
+    bsz = len(lengths)
+    max_len = torch.max(lengths)
+    mask = torch.LongTensor(bsz, max_len).fill_(1)
+    for i in range(bsz):
+        length = lengths[i]
+        mask[i, length:max_len] = 0
+    return mask
+
+
+def _pad_label(lengths, y):
+    bsz = len(lengths)
+    max_len = torch.max(lengths)
+    padded_y = torch.LongTensor(bsz, max_len).fill_(SLOT_PAD)
+    for i in range(bsz):
+        y_i = y[i]
+        padded_y[i, 0:] = y_i
+
+    return padded_y
 
 
 class TransNLUCRF(nn.Module):
@@ -21,21 +43,11 @@ class TransNLUCRF(nn.Module):
 
         if use_slots:
             self.slot_classifier = nn.Linear(trans_model.config.hidden_size, num_slots)
-            self.crf = CRF(num_slots, batch_first=True)
+            #self.crf = CRF(num_slots, batch_first=True)
             self.crf_layer = CRFLayer(num_slots, device)
 
             if not self.training:
                 self.crf_layer.eval()
-
-    """
-    def set_num_intents(self, acc_num_intents):
-        self.num_intents = acc_num_intents
-        self.intent_classifier = nn.Linear(trans_model.config.hidden_size, num_intents) # TODO adjust weights of this layer to the new num_intents
-
-    def set_num_slots(self, acc_num_slots):
-        self.num_slots = acc_num_slots
-        # TODO adjust weights of this layer to the new num_intents
-    """
 
     def forward(self, input_ids, input_masks, lengths, intent_labels=None, slot_labels=None):
 
@@ -52,6 +64,7 @@ class TransNLUCRF(nn.Module):
 
         logits_intents = self.intent_classifier(pooled_output)
         intent_loss = self.intent_criterion(logits_intents, intent_labels)
+        loss = intent_loss
 
         if self.use_slots:
             logits_slots = self.slot_classifier(lm_output[0])
@@ -59,19 +72,20 @@ class TransNLUCRF(nn.Module):
             #slot_loss = self.crf_loss(logits_slots, lengths, slot_labels) # OLDD
             slot_loss = self.crf_layer.loss(logits_slots, slot_labels) #crf_layer
             ####slot_loss = -1 * self.crf(logits_slots, slot_labels)
+            loss += slot_loss
 
             logits_slots = self.crf_decode(logits_slots, lengths) #crf_layer
 
         if intent_labels is not None:
             if slot_labels is None:
-                return logits_intents, intent_loss
+                return logits_intents, intent_loss, loss
 
-            return logits_intents, logits_slots, intent_loss, slot_loss
+            return logits_intents, logits_slots, intent_loss, slot_loss, loss
         else:
             if self.use_slots:
-                return intent_loss, slot_loss
+                return intent_loss, slot_loss, loss
 
-            return intent_loss
+            return intent_loss, loss
 
     def crf_loss(self, inputs, lengths, y):
         """ create crf loss
@@ -82,8 +96,8 @@ class TransNLUCRF(nn.Module):
         Ouput:
             crf_loss: loss of crf
         """
-        padded_y = self.pad_label(lengths, y)
-        mask = self.make_mask(lengths)
+        padded_y = _pad_label(lengths, y)
+        mask = _make_mask(lengths)
         crf_loss = self.crf_layer.loss(inputs, padded_y)
 
         return crf_loss
@@ -100,22 +114,3 @@ class TransNLUCRF(nn.Module):
         prediction = [prediction[i, :length].data.cpu().numpy() for i, length in enumerate(lengths)]
 
         return prediction
-
-    def make_mask(self, lengths):
-        bsz = len(lengths)
-        max_len = torch.max(lengths)
-        mask = torch.LongTensor(bsz, max_len).fill_(1)
-        for i in range(bsz):
-            length = lengths[i]
-            mask[i, length:max_len] = 0
-        return mask
-
-    def pad_label(self, lengths, y):
-        bsz = len(lengths)
-        max_len = torch.max(lengths)
-        padded_y = torch.LongTensor(bsz, max_len).fill_(SLOT_PAD)
-        for i in range(bsz):
-            y_i = y[i]
-            padded_y[i, 0:] = y_i
-
-        return padded_y
