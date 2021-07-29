@@ -20,4 +20,4 @@ python -W ignore main.py --data_root $data_root \
                          --beta_2 $beta_2 \
                          --eval_steps $eval_steps \
                          --no_debug \
-                         --seed 42
+                         --seed 40
