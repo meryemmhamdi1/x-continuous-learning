@@ -6,10 +6,9 @@ python -W ignore main.py --data_root $data_root \
                          --setup_opt "cll" \
                          --order_class 0 \
                          --order_lang 0 \
-                         --trans_model "BertBaseMultilingualCased" \
+                         --trans_model "XLMRoberta_large" \
                          --model_root $model_root \
                          --use_slots \
-                         --languages "de" "en" "es" "fr" "hi" "th" \
                          --num_intent_tasks $num_intent_tasks \
                          --num_lang_tasks $num_lang_tasks \
                          --epochs $epochs \
