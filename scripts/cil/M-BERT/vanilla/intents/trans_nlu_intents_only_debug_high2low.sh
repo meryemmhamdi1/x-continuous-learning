@@ -10,7 +10,6 @@ python main.py --data_root $data_root \
                --verbose \
                --trans_model "BertBaseMultilingualCased" \
                --model_root $model_root \
-               --languages "de" "en" "es" "fr" "hi" "th" \
                --num_intent_tasks $num_intent_tasks \
                --num_lang_tasks $num_lang_tasks \
                --epochs $epochs \

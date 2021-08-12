@@ -9,7 +9,6 @@ python -W ignore main.py --data_root $data_root \
                          --trans_model "BertBaseMultilingualCased" \
                          --model_root $model_root \
                          --use_slots \
-                         --languages "de" "en" "es" "fr" "hi" "th" \
                          --num_intent_tasks $num_intent_tasks \
                          --num_lang_tasks $num_lang_tasks \
                          --epochs $epochs \
