@@ -29,7 +29,7 @@ def _pad_label(lengths, y):
 
 
 class TransNLUCRF(nn.Module):
-    def __init__(self, trans_model, num_intents, device, use_slots=False, num_slots=0):
+    def __init__(self, trans_model, num_intents, device, freeze_bert=False, use_slots=False, num_slots=0):
         super(TransNLUCRF, self).__init__()
         self.num_intents = num_intents
         self.config = trans_model.config
@@ -37,24 +37,36 @@ class TransNLUCRF(nn.Module):
         self.dropout = nn.Dropout(trans_model.config.hidden_dropout_prob)
         self.use_slots = use_slots
         self.device = device
+        self.freeze_bert = freeze_bert
 
-        self.intent_classifier = nn.Linear(trans_model.config.hidden_size, num_intents)
+        self.intent_classifier = nn.Linear(trans_model.config.hidden_size, num_intents)#.to(device)
         self.intent_criterion = torch.nn.CrossEntropyLoss()
 
         if use_slots:
-            self.slot_classifier = nn.Linear(trans_model.config.hidden_size, num_slots)
+            self.slot_classifier = nn.Linear(trans_model.config.hidden_size, num_slots)#.to(device)
             #self.crf = CRF(num_slots, batch_first=True)
             self.crf_layer = CRFLayer(num_slots, device)
 
             if not self.training:
                 self.crf_layer.eval()
 
-    def forward(self, input_ids, input_masks, lengths, intent_labels=None, slot_labels=None):
+    def forward(self,
+                input_ids,
+                input_masks,
+                lengths,
+                intent_labels=None,
+                slot_labels=None):
 
         if self.training:
+            #for param in self.trans_model.parameters():
+            #    param.requires_grad = True
+
             self.trans_model.train()
             lm_output = self.trans_model(input_ids)
         else:
+            #for param in self.trans_model.parameters():
+            #    param.requires_grad = False
+
             self.trans_model.eval()
             with torch.no_grad():
                 lm_output = self.trans_model(input_ids)
@@ -70,15 +82,22 @@ class TransNLUCRF(nn.Module):
             logits_slots = self.slot_classifier(lm_output[0])
 
             #slot_loss = self.crf_loss(logits_slots, lengths, slot_labels) # OLDD
+            #print("logits_slots:", logits_slots)
+            #print("slot_labels:", slot_labels)
             slot_loss = self.crf_layer.loss(logits_slots, slot_labels) #crf_layer
             ####slot_loss = -1 * self.crf(logits_slots, slot_labels)
             loss += slot_loss
-
             logits_slots = self.crf_decode(logits_slots, lengths) #crf_layer
 
         if intent_labels is not None:
             if slot_labels is None:
                 return logits_intents, intent_loss, loss
+
+            # print("logits_intents:", logits_intents)
+            # print("logits_slots:", logits_slots)
+            # print("intent_loss:", intent_loss)
+            # print("slot_loss:", slot_loss)
+            # print("loss:", loss)
 
             return logits_intents, logits_slots, intent_loss, slot_loss, loss
         else:
@@ -111,6 +130,6 @@ class TransNLUCRF(nn.Module):
             crf_loss: loss of crf
         """
         prediction = self.crf_layer(inputs)
-        prediction = [prediction[i, :length].data.cpu().numpy() for i, length in enumerate(lengths)]
+        #prediction = [prediction[i, :length].data.cpu().numpy() for i, length in enumerate(lengths)]
 
         return prediction

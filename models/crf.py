@@ -18,9 +18,10 @@ class CRFLayer(nn.Module):
         super(CRFLayer, self).__init__()
 
         self.num_tags = num_tags
-        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True).to(device)
-        self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).to(device)
-        self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).to(device)
+        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True).cuda()#.to(device)
+        self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()#.to(device)
+        self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()#.to(device)
+        self.device = device
 
         nn.init.xavier_normal_(self.transitions)
         self.params = {"transitions": self.transitions,
@@ -85,7 +86,7 @@ class CRFLayer(nn.Module):
         """
 
         # Compute feature scores
-        feat_score = feats.gather(2, tags.unsqueeze(-1)).squeeze(-1).sum(dim=-1)
+        feat_score = feats.gather(2, tags.unsqueeze(-1)).squeeze(-1).sum(dim=-1)#.to(self.device)
 
         # print(feat_score.size())
 
@@ -105,8 +106,13 @@ class CRFLayer(nn.Module):
         # Compute start and stop scores
         start_score = self.start_transitions[tags[:, 0]]
         stop_score = self.stop_transitions[tags[:, -1]]
+        # print("feat_score:", feat_score.to(self.device))
+        # print("start_score:", start_score.to(self.device))
+        # print("trans_score:", trans_score.to(self.device))
+        # print("stop_score:", stop_score.to(self.device))
 
-        return feat_score + start_score + trans_score + stop_score
+        return feat_score.to(self.device) + start_score.to(self.device) + trans_score.to(self.device) + stop_score.to(self.device)
+        #return start_score + trans_score + stop_score
 
     def _partition_function(self, feats, params):
         """
@@ -123,9 +129,9 @@ class CRFLayer(nn.Module):
         if self.num_tags != num_tags:
             raise ValueError('num_tags should be {} but got {}'.format(self.num_tags, num_tags))
 
-        self.transitions = params["transitions"]
-        self.start_transitions = params["start_transitions"]
-        self.stop_transitions = params["stop_transitions"]
+        self.transitions = params["transitions"].to(self.device)
+        self.start_transitions = params["start_transitions"].to(self.device)
+        self.stop_transitions = params["stop_transitions"].to(self.device)
 
         a = feats[:, 0] + self.start_transitions.unsqueeze(0) # [batch_size, num_tags]
         transitions = self.transitions.unsqueeze(0) # [1, num_tags, num_tags] from -> to
