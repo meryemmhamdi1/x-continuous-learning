@@ -423,7 +423,8 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
 class Dataset:
     """  """
     def __init__(self, data_path, setup_option, setup_3, tokenizer, data_format, use_slots, seed, languages,
-                 order_class, order_lang, num_intent_tasks, num_lang_tasks, intent_types=[], slot_types=["O", "X"]):
+                 order_class, order_lang, order_lang_lst, num_intent_tasks, num_lang_tasks, intent_types=[],
+                 slot_types=["O", "X"]):
         self.tokenizer = tokenizer
         self.use_slots = use_slots
         self.data_format = data_format
@@ -436,6 +437,7 @@ class Dataset:
         self.seed = seed
         self.order_class = order_class
         self.order_lang = order_lang
+        self.order_lang_lst = order_lang_lst
         self.languages = languages
         self.setup_option = setup_option
         self.setup_3 = setup_3
@@ -824,17 +826,22 @@ class Dataset:
         return other_intents
 
     def partition_per_lang(self, train_set):
-        if self.order_class == 2:
+        if self.order_lang == 2:
             ordered_langs = train_set.keys()
             random.shuffle(ordered_langs)
         else:
-            reverse_flag = False
-            if self.order_lang == 0:# decreasing frequency
-                reverse_flag = True
+            if len(self.order_lang_lst) == 0:
+                reverse_flag = False
+                if self.order_lang == 0:# decreasing frequency
+                    reverse_flag = True
 
-            ordered_langs = sorted(train_set,
-                                   key=lambda lang: len(train_set[lang]),
-                                   reverse=reverse_flag)
+                ordered_langs = sorted(train_set,
+                                       key=lambda lang: len(train_set[lang]),
+                                       reverse=reverse_flag)
+            else:
+                ordered_langs = self.order_lang_lst
+
+            print("ordered_langs:", ordered_langs)
         return ordered_langs
 
     def next_batch(self, batch_size, data_split):
