@@ -129,6 +129,7 @@ dmypy.json
 .pyre/
 
 .idea/*
+.DS_Store
 sync_scripts/*
 scratch.py
 ideas.txt
