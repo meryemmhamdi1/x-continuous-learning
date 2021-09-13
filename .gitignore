@@ -135,4 +135,11 @@ ideas.txt
 scripts/paths.config
 scripts/paths_end.config
 extract_intents_slots.py
+check_intent_slot_coverage.py
+dev_main.py
+freeze_layers.py
 
+
+# Results
+results_analysis/*
+backups/*
