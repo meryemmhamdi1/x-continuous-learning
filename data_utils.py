@@ -422,8 +422,21 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
 
 class Dataset:
     """  """
-    def __init__(self, data_path, setup_option, setup_3, tokenizer, data_format, use_slots, seed, languages,
-                 order_class, order_lang, order_lang_lst, num_intent_tasks, num_lang_tasks, intent_types=[],
+    def __init__(self,
+                 data_path,
+                 setup_option,
+                 setup_3,
+                 tokenizer,
+                 data_format,
+                 use_slots,
+                 seed,
+                 languages,
+                 order_class,
+                 order_lang,
+                 order_lang_lst,
+                 num_intent_tasks,
+                 num_lang_tasks,
+                 intent_types=[],
                  slot_types=["O", "X"]):
         self.tokenizer = tokenizer
         self.use_slots = use_slots
