@@ -3,9 +3,9 @@
 . scripts/paths.config
 python main.py --data_root $data_root \
                --out_dir $out_dir \
-               --setup_opt "cll" \
+               --setup_opt "multi-incremental-lang" \
                --order_class 0 \
-               --order_lang 2 \
+               --order_lang 0 \
                --trans_model "BertBaseMultilingualCased" \
                --model_root $model_root \
                --use_slots \

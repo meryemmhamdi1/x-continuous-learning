@@ -134,4 +134,5 @@ scratch.py
 ideas.txt
 scripts/paths.config
 scripts/paths_end.config
+extract_intents_slots.py
 
