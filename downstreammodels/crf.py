@@ -18,9 +18,9 @@ class CRFLayer(nn.Module):
         super(CRFLayer, self).__init__()
 
         self.num_tags = num_tags
-        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True).cuda()#.to(device)
-        self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()#.to(device)
-        self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()#.to(device)
+        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True).cuda()
+        self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()
+        self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()
         self.device = device
 
         nn.init.xavier_normal_(self.transitions)
@@ -28,12 +28,7 @@ class CRFLayer(nn.Module):
                        "start_transitions": self.start_transitions,
                        "stop_transitions": self.stop_transitions}
 
-        #print("INIT CRF self.training:", self.training)
-
-    def forward(self, feats, params=None):
-        #print("CRF self.training:", self.training)
-        if params is None:
-            params = self.params
+    def forward(self, feats):
         # Shape checks
         if len(feats.shape) != 3:
             raise ValueError("feats must be 3-d got {}-d".format(feats.shape))
@@ -49,6 +44,7 @@ class CRFLayer(nn.Module):
             feats: Input features [batch size, sequence length, number of tags]
             tags: Target tag indices [batch size, sequence length]. Should be between
                     0 and num_tags
+            params: passed parameters (are not passed in this project use cases or at least not yet needed)
         Returns:
             Negative log likelihood [a scalar]
         """
@@ -56,7 +52,6 @@ class CRFLayer(nn.Module):
             self.params = params
         else:
             params = self.params
-
 
         # Shape checks
         if len(feats.shape) != 3:
@@ -86,9 +81,7 @@ class CRFLayer(nn.Module):
         """
 
         # Compute feature scores
-        feat_score = feats.gather(2, tags.unsqueeze(-1)).squeeze(-1).sum(dim=-1)#.to(self.device)
-
-        # print(feat_score.size())
+        feat_score = feats.gather(2, tags.unsqueeze(-1)).squeeze(-1).sum(dim=-1)
 
         # Compute transition scores
         # Unfold to get [from, to] tag index pairs
@@ -106,13 +99,9 @@ class CRFLayer(nn.Module):
         # Compute start and stop scores
         start_score = self.start_transitions[tags[:, 0]]
         stop_score = self.stop_transitions[tags[:, -1]]
-        # print("feat_score:", feat_score.to(self.device))
-        # print("start_score:", start_score.to(self.device))
-        # print("trans_score:", trans_score.to(self.device))
-        # print("stop_score:", stop_score.to(self.device))
 
-        return feat_score.to(self.device) + start_score.to(self.device) + trans_score.to(self.device) + stop_score.to(self.device)
-        #return start_score + trans_score + stop_score
+        return feat_score.to(self.device) + start_score.to(self.device) \
+            + trans_score.to(self.device) + stop_score.to(self.device)
 
     def _partition_function(self, feats, params):
         """
@@ -133,14 +122,14 @@ class CRFLayer(nn.Module):
         self.start_transitions = params["start_transitions"].to(self.device)
         self.stop_transitions = params["stop_transitions"].to(self.device)
 
-        a = feats[:, 0] + self.start_transitions.unsqueeze(0) # [batch_size, num_tags]
-        transitions = self.transitions.unsqueeze(0) # [1, num_tags, num_tags] from -> to
+        a = feats[:, 0] + self.start_transitions.unsqueeze(0)  # [batch_size, num_tags]
+        transitions = self.transitions.unsqueeze(0)  # [1, num_tags, num_tags] from -> to
 
         for i in range(1, seq_size):
-            feat = feats[:, i].unsqueeze(1) # [batch_size, 1, num_tags]
-            a = self._log_sum_exp(a.unsqueeze(-1) + transitions + feat, 1) # [batch_size, num_tags]
+            feat = feats[:, i].unsqueeze(1)  # [batch_size, 1, num_tags]
+            a = self._log_sum_exp(a.unsqueeze(-1) + transitions + feat, 1)  # [batch_size, num_tags]
 
-        return self._log_sum_exp(a + self.stop_transitions.unsqueeze(0), 1) # [batch_size]
+        return self._log_sum_exp(a + self.stop_transitions.unsqueeze(0), 1)  # [batch_size]
 
     def _viterbi(self, feats):
         """
@@ -154,16 +143,16 @@ class CRFLayer(nn.Module):
         if self.num_tags != num_tags:
             raise ValueError('num_tags should be {} but got {}'.format(self.num_tags, num_tags))
 
-        v = feats[:, 0] + self.start_transitions.unsqueeze(0) # [batch_size, num_tags]
-        transitions = self.transitions.unsqueeze(0) # [1, num_tags, num_tags] from -> to
+        v = feats[:, 0] + self.start_transitions.unsqueeze(0)  # [batch_size, num_tags]
+        transitions = self.transitions.unsqueeze(0)  # [1, num_tags, num_tags] from -> to
         paths = []
 
         for i in range(1, seq_size):
             feat = feats[:, i] # [batch_size, num_tags]
-            v, idx = (v.unsqueeze(-1) + transitions).max(1) # [batch_size, num_tags], [batch_size, num_tags]
+            v, idx = (v.unsqueeze(-1) + transitions).max(1)  # [batch_size, num_tags], [batch_size, num_tags]
 
             paths.append(idx)
-            v = (v + feat) # [batch_size, num_tags]
+            v = (v + feat)  # [batch_size, num_tags]
 
         v, tag = (v + self.stop_transitions.unsqueeze(0)).max(1, True)
 
