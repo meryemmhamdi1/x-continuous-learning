@@ -20,8 +20,6 @@ from torch import nn
 from torch.autograd import Variable
 import torch.utils.data
 from contlearnalg.GEM import overwrite_grad, project2cone2
-import nvidia_smi
-torch.set_printoptions(threshold=10_000)
 
 gpus_list = list(range(torch.cuda.device_count()))
 
@@ -127,7 +125,7 @@ def nlu_evaluation(model,
                           " True Slots: ", " ".join(slots_true[i]), " Slot Prediction:", " ".join(slots_pred[i]))
 
                 text = sents_text[i][0] + "\t" + intent_types[intents_true[i]] + "\t" + intent_types[intents_pred[i]] \
-                    + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
+                        + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
                 writer.write(text+"\n")
 
     if verbose:
@@ -149,30 +147,33 @@ def nlu_evaluation(model,
     return intent_accuracy, intent_prec, intent_rec, intent_f1
 
 
-def store_grads(pp, grads, grad_dims, tid):
+def store_grads(pp, grads, grad_dims, tid, checkpoint_dir):
     """
-        This stores parameter gradients of past tasks.
+        This stores parameter gradients of one task at a time.
         pp: parameters
         grads: gradients
         grad_dims: list with number of parameters per layers
         tid: task id
     """
     # store the gradients
-    grads[:, tid].fill_(0.0)
+    grads.fill_(0.0)
     cnt = 0
     for n, p in pp:
         if p.grad is not None:
             beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
             en = sum(grad_dims[:cnt + 1])
-            grads[beg: en, tid].copy_(p.grad.data.view(-1))
+            grads[beg: en].copy_(p.grad.data.view(-1))
         cnt += 1
 
+    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(tid)), "wb") as file:
+        pickle.dump(grads, file)
 
-def train(params_old_tasks,
-          grads_old_tasks,
-          args,
+
+def train(args,
           optimizer,
           model,
+          model_k,
+          checkpoint_dir,
           dataset,
           subtask,
           subtask_size,
@@ -180,8 +181,6 @@ def train(params_old_tasks,
           epoch,
           i_task,
           num_steps,
-          grads,
-          grad_dims,
           old_dataset=None,
           sample_sizes=[]):
 
@@ -201,15 +200,6 @@ def train(params_old_tasks,
     intent_labels = intent_labels.cuda()
     slot_labels = slot_labels.cuda()
 
-    # nvidia_smi.nvmlInit()
-
-    # print("Before training-------------------------------------------------")
-    # for gpu in gpus_list:
-    #     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu)
-    #     res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
-    #     print('gpu #:', gpu, f'% gpu_: {res.gpu}%, gpu-mem: {res.memory}%')
-    # print("-------------------------------------------------")
-
     if args.use_slots:
         logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
                                                                            input_masks=input_masks,
@@ -224,54 +214,48 @@ def train(params_old_tasks,
                                                   input_masks=input_masks,
                                                   lengths=lengths,
                                                   intent_labels=intent_labels)
+
         writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
 
     if args.cont_learn_alg == "ewc":
         if i_task > 0:
-            # the list of previous tasks
-            # batches_list = []
-            # for sub_task_i in range(i_task):
-            #     for _ in range(sample_sizes[sub_task_i]):
-            #         batch, _ = dataset.next_batch(1, old_dataset[sub_task_i]["stream"])
-            #         batches_list.append(batch)
-            #
-            # ewc = EWC(model,
-            #           batches_list,
-            #           args.use_slots,
-            #           device,
-            #           args.use_online)
-            # print((args.ewc_lambda / 2) * ewc.penalty(model))
-
             reg_term = 0
             if args.use_online:
                 fisher_param = {n: 0 for n, p in model.named_parameters() if p.requires_grad}
                 for fj in range(1, i_task):
+                    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(i_task-fj)), "rb") as file:
+                        grads = pickle.load(file)
+
                     for n, p in model.named_parameters():
-                        fisher_param[n] += (args.gamma_ewc ** (fj-1)) * grads_old_tasks[i_task-fj][n]
+                        grad_k = grads[n]
+                        fisher_param[n] += (args.gamma_ewc ** (fj-1)) * grad_k
+                        del grad_k
+
+                with open(os.path.join(checkpoint_dir, "pytorch_params_"+str(i_task-1)), "rb") as file:
+                    params = pickle.load(file)
+
                 for n, p in model.named_parameters():
-                    _reg_term = fisher_param[n] * (p - params_old_tasks[i_task-1][n]) ** 2
+                    p_k = params[n]
+                    _reg_term = fisher_param[n] * (p - p_k) ** 2
+                    del p_k
                     reg_term += _reg_term.sum()
             else:
                 for k in range(0, i_task):
-                    # nvidia_smi.nvmlInit()
-                    #
-                    # print("------------------As we compute regularization terms------------")
-                    # for gpu in gpus_list:
-                    #     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu)
-                    #     res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
-                    #     print('gpu #:', gpu, f'% gpu_: {res.gpu}%, gpu-mem: {res.memory}%')
-                    # print("-----------------------------------------------------------------")
+                    with open(os.path.join(checkpoint_dir, "pytorch_params_"+str(k)), "rb") as file:
+                        params = pickle.load(file)
+
+                    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(k)), "rb") as file:
+                        grads = pickle.load(file)
+
                     for n, p in model.named_parameters():
                         torch.cuda.empty_cache()
                         if p.grad is not None and p.requires_grad:
-                            copy_grads = grads_old_tasks[k][n].cuda()
-                            oldie = params_old_tasks[k][n].cuda()
-                            _reg_term = copy_grads * (p - oldie) ** 2
-                            del copy_grads
-                            del oldie
+                            p_k = params[n]
+                            grad_k = grads[n]
+                            _reg_term = grad_k * (p - p_k) ** 2
+                            del grad_k
+                            del p_k
                             reg_term += _reg_term.sum()
-
-            print("i_task: ", i_task, " reg_term:", reg_term, " reg_term.grad:", reg_term.grad)
 
             loss += (args.ewc_lambda / 2) * reg_term
 
@@ -284,20 +268,24 @@ def train(params_old_tasks,
         saved_grads = {}
         for n, p in deepcopy(params).items():
             p.data.zero_()
-            # saved_grads[n] = variable(p.data)
-            saved_grads[n] = p.data.cpu()#.detach().numpy()
+            saved_grads[n] = variable(p.data)
 
         for n, p in model.named_parameters():
             if p.grad is not None and p.requires_grad:
-                # saved_grads[n].data += p.grad.data ** 2 / subtask_size
-                saved_grads[n].data += p.grad.data.cpu() ** 2 / subtask_size
+                saved_grads[n].data += p.grad.data ** 2 / subtask_size[i_task]
 
         saved_grads = {n: p for n, p in saved_grads.items()}
 
     elif args.cont_learn_alg == "gem":
+        grad_dims = []
+        for p in model.parameters():
+            grad_dims.append(p.data.numel())
+
+        grads = torch.Tensor(sum(grad_dims))
+
         loss = loss.mean()
         loss.backward()
-        store_grads(model.named_parameters(), grads, grad_dims, i_task)
+        store_grads(model.named_parameters(), grads, grad_dims, i_task, checkpoint_dir) # storing for the current task
         if i_task > 0:
             # forward pass on the previous data stored in the memory
             for old_task_i in range(i_task): # for all old tasks before current task i
@@ -309,11 +297,11 @@ def train(params_old_tasks,
                     input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
                     input_texts = batch
 
-                    input_ids = input_ids.cuda()#to(device)
-                    lengths = lengths.cuda()#to(device)
-                    input_masks = input_masks.cuda()#to(device)
-                    intent_labels = intent_labels.cuda()#to(device)
-                    slot_labels = slot_labels.cuda()#to(device)
+                    input_ids = input_ids.cuda()
+                    lengths = lengths.cuda()
+                    input_masks = input_masks.cuda()
+                    intent_labels = intent_labels.cuda()
+                    slot_labels = slot_labels.cuda()
 
                     if args.use_slots:
                         logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
@@ -329,38 +317,60 @@ def train(params_old_tasks,
                                                                   intent_labels=intent_labels)
 
                     loss.backward()
-                store_grads(model.named_parameters(), grads, grad_dims, old_task_i)
+                # Store the gradients for the current step
+                store_grads(model.named_parameters(), grads, grad_dims, old_task_i, checkpoint_dir)
 
-            # Solve the dual of the quadratic equation
-            indx = torch.LongTensor(list(range(i_task))).cuda() if torch.cuda.device_count() > 0 \
-                else torch.LongTensor(list(range(i_task)))
+                # Solve the dual of the quadratic equation
+                indx = torch.LongTensor(list(range(i_task))).cuda() if torch.cuda.device_count() > 0 \
+                    else torch.LongTensor(list(range(i_task)))
 
-            dotp = torch.mm(grads[:, i_task].unsqueeze(0),
-                            grads.index_select(1, indx))
+                print("index:", indx, "index.data.cpu():", indx.data.cpu().numpy()[0])
+                with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(indx.data.cpu().numpy()[0])), "rb") as file:
+                    grads_old = pickle.load(file).cuda()
 
-            # check if the constraints have been violated
-            if (dotp < 0).sum() != 0:
-                # If it is the case:
-                # Copy the gradients
-                project2cone2(grads[:, i_task].unsqueeze(1),
-                              grads.index_select(1, indx))
+                with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(i_task)), "rb") as file:
+                    grads = pickle.load(file).cuda()
 
-                # Update the named_parameters accordingly
-                overwrite_grad(model.named_parameters(), grads[:, i_task], grad_dims)
-        saved_grads = {}
+                print("grads_old:", grads_old.shape, "grads_old:", grads_old.unsqueeze(1))
+                print("grads.unsqueeze(0):", grads.unsqueeze(0).shape, " grads:", grads.unsqueeze(0))
+
+                dotp = torch.mm(grads.unsqueeze(0),
+                                grads_old.unsqueeze(1))#grads.index_select(1, indx))
+
+                print("Computed multiplication")
+
+                # check if the constraints have been violated
+                if (dotp < 0).sum() != 0:
+                    # If it is the case:
+                    # Copy the gradients
+
+                    print("Project2cone2")
+                    project2cone2(grads.unsqueeze(1),
+                                  grads_old.unsqueeze(1))#grads.index_select(1, indx))
+                    print("Overwriting grads")
+
+                    # Update the named_parameters accordingly
+                    overwrite_grad(model.named_parameters(),
+                                   grads,
+                                   grad_dims)
+                    print("Finished")
+
+        saved_grads = grads
+        params = {n: p for n, p in model.named_parameters() if p.requires_grad}
 
     else:
         loss = loss.mean()
 
         loss.backward()
-        saved_grads = {}
+        params = None
+        saved_grads = None
 
     optimizer.step()
 
     if args.use_slots:
-        return intent_loss, slot_loss, saved_grads
+        return intent_loss, slot_loss, params, saved_grads
     else:
-        return intent_loss, saved_grads
+        return intent_loss, params, saved_grads
 
 
 def evaluate_report(data_stream,
@@ -743,6 +753,19 @@ def run(out_dir, metrics_path, args):
 
     model.cuda()
 
+    model_k = TransNLUCRF(args=args,
+                          trans_model=model_trans,
+                          num_tasks=num_tasks,
+                          num_intents=num_intents,
+                          eff_num_intents_task=eff_num_intents_task,
+                          device=device,
+                          use_multi_head_in=args.multi_head_in,
+                          use_multi_head_out=args.multi_head_out,
+                          use_slots=args.use_slots,
+                          num_slots=eff_num_slot)
+
+    model_k.cuda()
+
     if args.random_pred:
         metrics = {lang: {} for lang in dataset.test_stream}
         for lang in dataset.test_stream:
@@ -1012,17 +1035,11 @@ def run(out_dir, metrics_path, args):
         => Each stream sees all intents
         """
         # Iterating over the stream of languages
-        params_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream)}
-        grads_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream)}
 
         sample_sizes = []
         best_saved_grads = None
 
-        grad_dims = []
-        for n, param in model.named_parameters():
-            if param.requires_grad:
-                grad_dims.append(param.data.numel())
-        grads = torch.Tensor(sum(grad_dims), len(dataset.train_stream)).cuda()
+        subtask_size = {i: 0 for i in range(len(dataset.train_stream))}
 
         best_model = None
 
@@ -1046,27 +1063,27 @@ def run(out_dir, metrics_path, args):
                         if p.requires_grad and 'slot_classifier' in n:
                             p.requires_grad = False
 
+            subtask_size[i] = subtask["size"]
+
             for epoch in tqdm(range(args.epochs)):
                 gc.collect()
                 num_steps += 1
                 for j in range(num_iter):
                     if args.use_slots:
-                        intent_loss, slot_loss, saved_grads = train(params_old_tasks,
-                                                                    grads_old_tasks,
-                                                                    args,
-                                                                    optimizer,
-                                                                    model,
-                                                                    dataset,
-                                                                    stream,
-                                                                    subtask["size"],
-                                                                    writer,
-                                                                    epoch,
-                                                                    i, # the order in the stream of training languages
-                                                                    j, # the number of iterations
-                                                                    old_dataset=dataset.train_stream, # all dataset to get old stream
-                                                                    sample_sizes=sample_sizes,
-                                                                    grads=grads,
-                                                                    grad_dims=grad_dims)
+                        intent_loss, slot_loss, params, saved_grads = train(args,
+                                                                            optimizer,
+                                                                            model,
+                                                                            model_k,
+                                                                            checkpoint_dir,
+                                                                            dataset,
+                                                                            stream,
+                                                                            subtask_size,
+                                                                            writer,
+                                                                            epoch,
+                                                                            i,# the order in the stream of training languages
+                                                                            j,# the number of iterations
+                                                                            old_dataset=dataset.train_stream, # all dataset to get old stream
+                                                                            sample_sizes=sample_sizes)
 
                         if j % args.eval_steps == 0:
                             print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
@@ -1074,35 +1091,31 @@ def run(out_dir, metrics_path, args):
                                                                                                slot_loss.mean()))
 
                     else:
-                        intent_loss, saved_grads = train(params_old_tasks,
-                                                         grads_old_tasks,
-                                                         args,
-                                                         optimizer,
-                                                         model,
-                                                         dataset,
-                                                         stream,
-                                                         subtask["size"],
-                                                         writer,
-                                                         epoch,
-                                                         i, # the order in the stream of training languages
-                                                         j, # the number of iterations
-                                                         old_dataset=dataset.train_stream, # all dataset to get old stream
-                                                         sample_sizes=sample_sizes,
-                                                         grads=grads,
-                                                         grad_dims=grad_dims)
+                        intent_loss, params, saved_grads = train(args,
+                                                                 optimizer,
+                                                                 model,
+                                                                 model_k,
+                                                                 checkpoint_dir,
+                                                                 dataset,
+                                                                 stream,
+                                                                 subtask_size,
+                                                                 writer,
+                                                                 epoch,
+                                                                 i,# the order in the stream of training languages
+                                                                 j,# the number of iterations
+                                                                 old_dataset=dataset.train_stream, # all dataset to get old stream
+                                                                 sample_sizes=sample_sizes)
 
                         if j % args.eval_steps == 0:
                             print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
 
-                    #if j == 15:
-                    #    exit(0)
                 print(">>>>>>> Dev Performance >>>>>")
                 dev_perf = compute_dev_performance(args,
                                                    model,
                                                    dataset,
                                                    dataset.dev_stream[i],
-                                                   i, # the order in the stream of training languages
-                                                   i, # the order in the stream of training languages
+                                                   i,# the order in the stream of training languages
+                                                   i,# the order in the stream of training languages
                                                    train_lang,
                                                    writer,
                                                    num_steps,
@@ -1112,67 +1125,26 @@ def run(out_dir, metrics_path, args):
                                                    #                      "-train_"+train_lang))
 
                 if dev_perf > dev_perf_best:
-                    best_saved_grads = saved_grads
                     dev_perf_best = dev_perf
 
-                    #torch.save(args, args_save_file)
-                    #torch.save(model.state_dict(), model_save_file)
-                    #torch.save(optimizer.state_dict(), optim_save_file)
-
                     best_model = model
-
-                # else:
-                #     best_model = TransNLUCRF(model_trans,
-                #                              eff_num_intent,
-                #                              device=device,
-                #                              use_slots=args.use_slots,
-                #                              num_slots=eff_num_slot)
-                #
-                #     if torch.cuda.device_count() > 1:
-                #         best_model = nn.DataParallel(best_model)
-                #
-                #     best_model.cuda()#to(device)
-                #
-                #     model_dict = torch.load(model_save_file)
-                #     best_model.load_state_dict(model_dict)
 
                 if best_model is None:
                     best_model = model
 
-                # metrics = {lang: {} for lang in dataset.test_stream}
-                # for lang in dataset.test_stream:
-                #     metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                #                                     0,
-                #                                     train_lang,
-                #                                     lang,
-                #                                     args,
-                #                                     dataset,
-                #                                     best_model,
-                #                                     writer,
-                #                                     i,
-                #                                     num_steps,
-                #                                     out_path=os.path.join(out_dir,
-                #                                                           "Test_perf-Epoch_" + str(epoch) +
-                #                                                            "-train_"+train_lang+"-test_"+lang)
-                #                                     verbose=args.verbose)
-                #
-                # with open(os.path.join(metrics_path, "epoch_"+str(epoch)+"_metrics_"+str(i)+".pickle"), "wb") as output_file:
-                #     pickle.dump(metrics, output_file)
+            print("Saving the best model at the end of the training stream for that language ....")
+            params_save_file = os.path.join(checkpoint_dir, "pytorch_params_"+str(i))
+            grads_save_file = os.path.join(checkpoint_dir, "pytorch_grads_"+str(i))
 
-            if best_saved_grads is None:
-                best_saved_grads = saved_grads
+            if args.cont_learn_alg != "gem":
 
-            params = {n: p for n, p in best_model.named_parameters() if p.requires_grad} # current task parameters to be saved
+                if params:
+                    with open(params_save_file, "wb") as file:
+                        pickle.dump(params, file)
 
-            _means = {n: {} for n, p in best_model.named_parameters() if p.requires_grad}
-
-            grads_old_tasks[i] = best_saved_grads
-
-            for n, p in deepcopy(params).items():
-                # _means[n] = variable(p.data)
-                _means[n] = p.data.cpu() # Previous task parameters
-
-            params_old_tasks[i] = _means
+                if saved_grads:
+                    with open(grads_save_file, "wb") as file:
+                        pickle.dump(saved_grads, file)
 
             print("------------------------------------ TESTING At the end of the training")
             metrics = {lang: {} for lang in dataset.test_stream}
@@ -1188,8 +1160,9 @@ def run(out_dir, metrics_path, args):
                                                 writer,
                                                 t_index, # index of the language being evaluated on
                                                 num_steps,
-                                                out_path=os.path.join(out_dir,
-                                                                      "End_test_perf-train_"+train_lang+"-test_"+lang),
+                                                out_path=None,
+                                                # out_path=os.path.join(out_dir,
+                                                #                      "End_test_perf-train_"+train_lang+"-test_"+lang),
                                                 verbose=args.verbose)
                 t_index += 1
 
