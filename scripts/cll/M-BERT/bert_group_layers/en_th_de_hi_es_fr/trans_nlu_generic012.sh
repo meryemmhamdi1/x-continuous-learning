@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 . scripts/hyperparam.config
 . scripts/paths.config
-python -W ignore main_sanity_check_multi.py --data_root $data_root \
+
+python -W ignore main_sanity_check_multi_other.py --data_root $data_root \
                                             --no_debug \
+                                            --multi_head_in \
+                                            --emb_enc_lang_spec "encoder.layer.0" "encoder.layer.1" "encoder.layer.2"\
                                             --out_dir $out_dir \
-                                            --setup_opt "multi-incremental-lang" \
+                                            --setup_opt "cll" \
                                             --order_class 0 \
                                             --order_lang 0 \
-                                            --order_str "hi" "de" "es" "th" "fr" "en" \
+                                            --order_str "en" "th" "de" "hi" "es" "fr" \
                                             --trans_model "BertBaseMultilingualCased" \
                                             --model_root $model_root \
                                             --use_slots \
@@ -21,4 +24,3 @@ python -W ignore main_sanity_check_multi.py --data_root $data_root \
                                             --beta_2 $beta_2 \
                                             --eval_steps $eval_steps \
                                             --seed 42
-

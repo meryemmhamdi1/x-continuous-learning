@@ -3,8 +3,6 @@
 . scripts/paths.config
 python -W ignore main_sanity_check_multi.py --data_root $data_root \
                                             --no_debug \
-                                            --multi_head_in \
-                                            --emb_enc_lang_spec "embeddings" \
                                             --out_dir $out_dir \
                                             --setup_opt "multi-incremental-lang" \
                                             --order_class 0 \
