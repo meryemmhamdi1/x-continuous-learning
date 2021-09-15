@@ -20,8 +20,9 @@ from torch import nn
 from torch.autograd import Variable
 import torch.utils.data
 from contlearnalg.GEM import overwrite_grad, project2cone2
+from downstreammodels.crf import CRFLayer
 import nvidia_smi
-torch.set_printoptions(threshold=10_000)
+import copy
 
 gpus_list = list(range(torch.cuda.device_count()))
 
@@ -35,14 +36,381 @@ def variable(t: torch.Tensor, use_cuda=True, **kwargs):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def nlu_evaluation(model,
-                   dataset,
+def compute_change(mbert1, mbert2,
+                   intent1, intent2,
+                   slot1, slot2):
+
+    sum_layers = {"trans_model."+k: 0.0 for k, v in mbert1.named_parameters()}
+    sum_layers.update({"intent_classifier."+k: 0.0 for k, v in intent1.named_parameters()})
+    sum_layers.update({"slot_classifier."+k: 0.0 for k, v in slot1.named_parameters()})
+    sum_layers.update({"mbert": 0.0})
+    sum_layers.update({"intent": 0.0})
+    sum_layers.update({"slot": 0.0})
+    sum_layers.update({"all": 0.0})
+
+    mean_layers = {"trans_model."+k: 0.0 for k, v in mbert1.named_parameters()}
+    mean_layers.update({"intent_classifier."+k: 0.0 for k, v in intent1.named_parameters()})
+    mean_layers.update({"slot_classifier."+k: 0.0 for k, v in slot1.named_parameters()})
+    mean_layers.update({"mbert": 0.0})
+    mean_layers.update({"intent": 0.0})
+    mean_layers.update({"slot": 0.0})
+    mean_layers.update({"all": 0.0})
+
+    mbert2_items = {"trans_model."+k: v for k, v in mbert2.named_parameters()}
+
+    count = 0
+    count_bert = 0
+    for k, v1 in mbert1.named_parameters():
+        k = "trans_model." + k
+        count += 1
+        count_bert += 1
+        v2 = mbert2_items[k].data.numpy()
+        v1 = v1.data.cpu().numpy()
+        res = v1 - v2
+
+        sum = np.sum(res)
+        sum_layers[k] = sum
+        sum_layers["mbert"] += sum
+        sum_layers["all"] += sum
+
+        mean = np.mean(res)
+        mean_layers[k] = mean
+        mean_layers["mbert"] += mean
+        mean_layers["all"] += mean
+
+    intent2_items = {"intent_classifier." + k: v for k, v in intent2.named_parameters()}
+    for k, v1 in intent1.named_parameters():
+        k = "intent_classifier." + k
+
+        count += 1
+        v2 = intent2_items[k].data.cpu().numpy()
+        v1 = v1.data.cpu().numpy()
+        res = v1 - v2
+
+        sum = np.sum(res)
+        sum_layers[k] = sum
+        sum_layers["all"] += sum
+        sum_layers["intent"] += sum
+
+        mean = np.mean(res)
+        mean_layers[k] = mean
+        mean_layers["all"] += mean
+        mean_layers["intent"] += mean
+
+    slot2_items = {"slot_classifier." + k: v for k, v in slot2.named_parameters()}
+    for k, v1 in slot1.named_parameters():
+        k = "slot_classifier." + k
+
+        count += 1
+        v2 = slot2_items[k].data.cpu().numpy()
+        v1 = v1.data.cpu().numpy()
+        res = v1 - v2
+
+        sum = np.sum(res)
+        sum_layers[k] = sum
+        sum_layers["all"] += sum
+        sum_layers["slot"] += sum
+
+        mean = np.mean(res)
+        mean_layers[k] = mean
+        mean_layers["all"] += mean
+        mean_layers["slot"] += mean
+
+    print("-------------All mean_all:", mean_layers["all"]/count, " sum_all:", sum_layers["all"],
+          " mean_mbert:", mean_layers["mbert"]/count_bert, " sum_mbert:", sum_layers["mbert"],
+          " mean_intent:", mean_layers["intent"]/2, " sum_intent:", sum_layers["intent"]/2,
+          " mean_slot:", mean_layers["slot"]/2, " sum_slot:", sum_layers["slot"]/2)
+
+    return mean_layers, sum_layers
+
+
+def store_grads(pp,
+                grads,
+                grad_dims,
+                tid,
+                checkpoint_dir):
+    """
+        This stores parameter gradients of one task at a time.
+        pp: parameters
+        grads: gradients
+        grad_dims: list with number of parameters per layers
+        tid: task id
+    """
+    # store the gradients
+    grads.fill_(0.0)
+    cnt = 0
+    for n, p in pp:
+        if p.grad is not None:
+            beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
+            en = sum(grad_dims[:cnt + 1])
+            grads[beg: en].copy_(p.grad.data.view(-1))
+        cnt += 1
+
+    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(tid)), "wb") as file:
+        pickle.dump(grads, file)
+
+
+def train(optimizer,
+          model,
+          checkpoint_dir,
+          dataset,
+          subtask,
+          subtask_size,
+          writer,
+          epoch,
+          i_task,
+          num_steps,
+          old_dataset=None,
+          sample_sizes=[]):
+
+    optimizer.zero_grad()
+    model.train()
+    # Take batch by batch and move to cuda
+    batch, _ = dataset.next_batch(args.batch_size, subtask)
+
+    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
+        input_texts = batch
+
+    input_ids = input_ids.cuda()
+    lengths = lengths.cuda()
+    token_type_ids = token_type_ids.cuda()
+    input_masks = input_masks.cuda()
+    attention_mask = attention_mask.cuda()
+    intent_labels = intent_labels.cuda()
+    slot_labels = slot_labels.cuda()
+
+    if args.use_slots:
+        logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
+                                                                           input_masks=input_masks,
+                                                                           lengths=lengths,
+                                                                           intent_labels=intent_labels,
+                                                                           slot_labels=slot_labels)
+
+        writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
+        writer.add_scalar('train_slot_loss_'+str(i_task), slot_loss.mean(), num_steps*epoch)
+    else:
+        logits_intents, intent_loss, loss = model(input_ids=input_ids,
+                                                  input_masks=input_masks,
+                                                  lengths=lengths,
+                                                  intent_labels=intent_labels)
+        writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
+
+    if args.cont_learn_alg == "ewc":
+        if i_task > 0:
+            # the list of previous tasks
+            # batches_list = []
+            # for sub_task_i in range(i_task):
+            #     for _ in range(sample_sizes[sub_task_i]):
+            #         batch, _ = dataset.next_batch(1, old_dataset[sub_task_i]["stream"])
+            #         batches_list.append(batch)
+            #
+            # ewc = EWC(model,
+            #           batches_list,
+            #           args.use_slots,
+            #           device,
+            #           args.use_online)
+            # print((args.ewc_lambda / 2) * ewc.penalty(model))
+
+            reg_term = 0
+            if args.use_online:
+                fisher_param = {n: 0 for n, p in model.named_parameters() if p.requires_grad}
+                for fj in range(1, i_task):
+                    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(i_task-fj)), "rb") as file:
+                        grads = pickle.load(file)
+
+                    for n, p in model.named_parameters():
+                        grad_k = grads[n]
+                        fisher_param[n] += (args.gamma_ewc ** (fj-1)) * grad_k
+                        del grad_k
+
+                with open(os.path.join(checkpoint_dir, "pytorch_params_"+str(i_task-1)), "rb") as file:
+                    params = pickle.load(file)
+
+                for n, p in model.named_parameters():
+                    p_k = params[n]
+                    _reg_term = fisher_param[n] * (p - p_k) ** 2
+                    del p_k
+                    reg_term += _reg_term.sum()
+            else:
+                for k in range(0, i_task):
+                    with open(os.path.join(checkpoint_dir, "pytorch_params_"+str(k)), "rb") as file:
+                        params = pickle.load(file)
+
+                    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(k)), "rb") as file:
+                        grads = pickle.load(file)
+
+                    for n, p in model.named_parameters():
+                        torch.cuda.empty_cache()
+                        if p.grad is not None and p.requires_grad:
+                            p_k = params[n]
+                            grad_k = grads[n]
+                            _reg_term = grad_k * (p - p_k) ** 2
+                            del grad_k
+                            del p_k
+                            reg_term += _reg_term.sum()
+
+            print("i_task: ", i_task, " reg_term:", reg_term, " reg_term.grad:", reg_term.grad)
+
+            loss += (args.ewc_lambda / 2) * reg_term
+
+        loss = loss.mean()
+
+        loss.backward()
+
+        params = {n: p for n, p in model.named_parameters() if p.requires_grad}
+
+        saved_grads = {}
+        for n, p in deepcopy(params).items():
+            p.data.zero_()
+            saved_grads[n] = variable(p.data)
+            # saved_grads[n] = p.data.cpu()#.detach().numpy()
+
+        for n, p in model.named_parameters():
+            if p.grad is not None and p.requires_grad:
+                saved_grads[n].data += p.grad.data ** 2 / subtask_size[i_task]
+                # saved_grads[n].data += p.grad.data.cpu() ** 2 / subtask_size[i_task]
+
+        saved_grads = {n: p for n, p in saved_grads.items()}
+
+    elif args.cont_learn_alg == "gem":
+        grad_dims = []
+        for p in model.parameters():
+            grad_dims.append(p.data.numel())
+
+        grads = torch.Tensor(sum(grad_dims))
+
+        loss = loss.mean()
+        loss.backward()
+        store_grads(model.named_parameters(), grads, grad_dims, i_task, checkpoint_dir) # storing for the current task
+        if i_task > 0:
+            # forward pass on the previous data stored in the memory
+            for old_task_i in range(i_task): # for all old tasks before current task i
+
+                for _ in range(sample_sizes[old_task_i]):
+                    model.zero_grad()
+                    batch, _ = dataset.next_batch(1, old_dataset[old_task_i]["stream"])
+
+                    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
+                    input_texts = batch
+
+                    input_ids = input_ids.cuda()
+                    lengths = lengths.cuda()
+                    input_masks = input_masks.cuda()
+                    intent_labels = intent_labels.cuda()
+                    slot_labels = slot_labels.cuda()
+
+                    if args.use_slots:
+                        logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
+                                                                                           input_masks=input_masks,
+                                                                                           lengths=lengths,
+                                                                                           intent_labels=intent_labels,
+                                                                                           slot_labels=slot_labels)
+
+                    else:
+                        logits_intents, intent_loss, loss = model(input_ids=input_ids,
+                                                                  input_masks=input_masks,
+                                                                  lengths=lengths,
+                                                                  intent_labels=intent_labels)
+
+                    loss.backward()
+                # Store the gradients for the current step
+                store_grads(model.named_parameters(), grads, grad_dims, old_task_i, checkpoint_dir)
+
+            # Solve the dual of the quadratic equation # TODO double check if this is done only once at the end of all
+            indx = torch.LongTensor(list(range(i_task))).cuda() if torch.cuda.device_count() > 0 \
+                else torch.LongTensor(list(range(i_task)))
+
+            print("index:", indx, "index.data.cpu():", indx.data.cpu().numpy()[0])
+            with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(indx.data.cpu().numpy()[0])), "rb") as file:
+                grads_old = pickle.load(file).cuda()
+
+            with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(i_task)), "rb") as file:
+                grads = pickle.load(file).cuda()
+
+            print("grads_old:", grads_old.shape, "grads_old:", grads_old.unsqueeze(1))
+            print("grads.unsqueeze(0):", grads.unsqueeze(0).shape, " grads:", grads.unsqueeze(0))
+
+            dotp = torch.mm(grads.unsqueeze(0),
+                            grads_old.unsqueeze(1))#grads.index_select(1, indx))
+
+            print("Computed multiplication")
+
+            # check if the constraints have been violated
+            if (dotp < 0).sum() != 0:
+                # If it is the case:
+                # Copy the gradients
+
+                print("Project2cone2")
+                project2cone2(grads.unsqueeze(1),
+                              grads_old.unsqueeze(1))#grads.index_select(1, indx))
+                print("Overwriting grads")
+
+                # Update the named_parameters accordingly
+                overwrite_grad(model.named_parameters(),
+                               grads,
+                               grad_dims)
+                print("Finished")
+
+        saved_grads = grads
+        params = {n: p for n, p in model.named_parameters() if p.requires_grad}
+
+    else:
+        loss = loss.mean()
+
+        loss.backward()
+        params = None
+        saved_grads = None
+
+    optimizer.step()
+
+    if args.use_slots:
+        return intent_loss, slot_loss, params, saved_grads
+    else:
+        return intent_loss, params, saved_grads
+
+
+def nlu_evaluation(dataset,
                    dataset_test,
                    nb_examples,
+                   model,
                    use_slots,
-                   i_task,
+                   test_idx,
                    out_path=None,
-                   verbose=False):
+                   verbose=False,
+                   prior_mbert=None,
+                   prior_intents=None,
+                   prior_slots=None):
+
+    print("Evaluating on i_task:", test_idx)
+    if prior_mbert or prior_intents or prior_slots:
+        model_dict = model.state_dict()
+
+        if prior_mbert:
+            print("Using prior_mbert")
+            ### 1. wanted keys, values are in trans_model
+            trans_model_dict = {"trans_model."+k: v for k, v in prior_mbert.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(trans_model_dict)
+
+        if prior_intents:
+            print("Using prior_intents")
+            ### 1. wanted keys, values are in trans_model
+            intent_classifier_dict = {"intent_classifier."+k: v for k, v in prior_intents.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(intent_classifier_dict)
+
+        if prior_slots:
+            print("Using prior_slots")
+            ### 1. wanted keys, values are in trans_model
+            slot_classifier_dict = {"slot_classifier."+k: v for k, v in prior_slots.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(slot_classifier_dict)
+
+        ### 3. load the new state dict
+        model.load_state_dict(model_dict)
 
     model.eval()
 
@@ -121,18 +489,18 @@ def nlu_evaluation(model,
     if out_path:
         with open(out_path, "w") as writer:
             for i in range(len(sents_text)):
-                if i < 3: # print first 3 predictions
+                if i < 3:  # print first 3 predictions
                     print("Sent :", sents_text[i][0], " True Intent: ", intent_types[intents_true[i]],
                           " Intent Prediction :", intent_types[intents_pred[i]],
                           " True Slots: ", " ".join(slots_true[i]), " Slot Prediction:", " ".join(slots_pred[i]))
 
                 text = sents_text[i][0] + "\t" + intent_types[intents_true[i]] + "\t" + intent_types[intents_pred[i]] \
-                    + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
+                       + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
                 writer.write(text+"\n")
 
     if verbose:
-        print(i_task, " -----------intents_true:", set(intents_true))
-        print(i_task, " -----------intents_pred:", set(intents_pred))
+        print(test_idx, " -----------intents_true:", set(intents_true))
+        print(test_idx, " -----------intents_pred:", set(intents_pred))
 
     intent_accuracy = float(intent_corrects) / nb_examples
     intent_prec = precision_score(intents_true, intents_pred, average="macro")
@@ -149,281 +517,74 @@ def nlu_evaluation(model,
     return intent_accuracy, intent_prec, intent_rec, intent_f1
 
 
-def store_grads(pp, grads, grad_dims, tid):
-    """
-        This stores parameter gradients of past tasks.
-        pp: parameters
-        grads: gradients
-        grad_dims: list with number of parameters per layers
-        tid: task id
-    """
-    # store the gradients
-    grads[:, tid].fill_(0.0)
-    cnt = 0
-    for n, p in pp:
-        if p.grad is not None:
-            beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
-            en = sum(grad_dims[:cnt + 1])
-            grads[beg: en, tid].copy_(p.grad.data.view(-1))
-        cnt += 1
-
-
-def train(params_old_tasks,
-          grads_old_tasks,
-          args,
-          optimizer,
-          model,
-          dataset,
-          subtask,
-          subtask_size,
-          writer,
-          epoch,
-          i_task,
-          num_steps,
-          grads,
-          grad_dims,
-          old_dataset=None,
-          sample_sizes=[]):
-
-    optimizer.zero_grad()
-    model.train()
-    # Take batch by batch and move to cuda
-    batch, _ = dataset.next_batch(args.batch_size, subtask)
-
-    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
-        input_texts = batch
-
-    input_ids = input_ids.cuda()
-    lengths = lengths.cuda()
-    token_type_ids = token_type_ids.cuda()
-    input_masks = input_masks.cuda()
-    attention_mask = attention_mask.cuda()
-    intent_labels = intent_labels.cuda()
-    slot_labels = slot_labels.cuda()
-
-    # nvidia_smi.nvmlInit()
-
-    # print("Before training-------------------------------------------------")
-    # for gpu in gpus_list:
-    #     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu)
-    #     res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
-    #     print('gpu #:', gpu, f'% gpu_: {res.gpu}%, gpu-mem: {res.memory}%')
-    # print("-------------------------------------------------")
-
-    if args.use_slots:
-        logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
-                                                                           input_masks=input_masks,
-                                                                           lengths=lengths,
-                                                                           intent_labels=intent_labels,
-                                                                           slot_labels=slot_labels)
-
-        writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
-        writer.add_scalar('train_slot_loss_'+str(i_task), slot_loss.mean(), num_steps*epoch)
-    else:
-        logits_intents, intent_loss, loss = model(input_ids=input_ids,
-                                                  input_masks=input_masks,
-                                                  lengths=lengths,
-                                                  intent_labels=intent_labels)
-        writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
-
-    if args.cont_learn_alg == "ewc":
-        if i_task > 0:
-            # the list of previous tasks
-            # batches_list = []
-            # for sub_task_i in range(i_task):
-            #     for _ in range(sample_sizes[sub_task_i]):
-            #         batch, _ = dataset.next_batch(1, old_dataset[sub_task_i]["stream"])
-            #         batches_list.append(batch)
-            #
-            # ewc = EWC(model,
-            #           batches_list,
-            #           args.use_slots,
-            #           device,
-            #           args.use_online)
-            # print((args.ewc_lambda / 2) * ewc.penalty(model))
-
-            reg_term = 0
-            if args.use_online:
-                fisher_param = {n: 0 for n, p in model.named_parameters() if p.requires_grad}
-                for fj in range(1, i_task):
-                    for n, p in model.named_parameters():
-                        fisher_param[n] += (args.gamma_ewc ** (fj-1)) * grads_old_tasks[i_task-fj][n]
-                for n, p in model.named_parameters():
-                    _reg_term = fisher_param[n] * (p - params_old_tasks[i_task-1][n]) ** 2
-                    reg_term += _reg_term.sum()
-            else:
-                for k in range(0, i_task):
-                    # nvidia_smi.nvmlInit()
-                    #
-                    # print("------------------As we compute regularization terms------------")
-                    # for gpu in gpus_list:
-                    #     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu)
-                    #     res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
-                    #     print('gpu #:', gpu, f'% gpu_: {res.gpu}%, gpu-mem: {res.memory}%')
-                    # print("-----------------------------------------------------------------")
-                    for n, p in model.named_parameters():
-                        torch.cuda.empty_cache()
-                        if p.grad is not None and p.requires_grad:
-                            copy_grads = grads_old_tasks[k][n].cuda()
-                            oldie = params_old_tasks[k][n].cuda()
-                            _reg_term = copy_grads * (p - oldie) ** 2
-                            del copy_grads
-                            del oldie
-                            reg_term += _reg_term.sum()
-
-            print("i_task: ", i_task, " reg_term:", reg_term, " reg_term.grad:", reg_term.grad)
-
-            loss += (args.ewc_lambda / 2) * reg_term
-
-        loss = loss.mean()
-
-        loss.backward()
-
-        params = {n: p for n, p in model.named_parameters() if p.requires_grad}
-
-        saved_grads = {}
-        for n, p in deepcopy(params).items():
-            p.data.zero_()
-            # saved_grads[n] = variable(p.data)
-            saved_grads[n] = p.data.cpu()#.detach().numpy()
-
-        for n, p in model.named_parameters():
-            if p.grad is not None and p.requires_grad:
-                # saved_grads[n].data += p.grad.data ** 2 / subtask_size
-                saved_grads[n].data += p.grad.data.cpu() ** 2 / subtask_size
-
-        saved_grads = {n: p for n, p in saved_grads.items()}
-
-    elif args.cont_learn_alg == "gem":
-        loss = loss.mean()
-        loss.backward()
-        store_grads(model.named_parameters(), grads, grad_dims, i_task)
-        if i_task > 0:
-            # forward pass on the previous data stored in the memory
-            for old_task_i in range(i_task): # for all old tasks before current task i
-
-                for _ in range(sample_sizes[old_task_i]):
-                    model.zero_grad()
-                    batch, _ = dataset.next_batch(1, old_dataset[old_task_i]["stream"])
-
-                    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
-                    input_texts = batch
-
-                    input_ids = input_ids.cuda()#to(device)
-                    lengths = lengths.cuda()#to(device)
-                    input_masks = input_masks.cuda()#to(device)
-                    intent_labels = intent_labels.cuda()#to(device)
-                    slot_labels = slot_labels.cuda()#to(device)
-
-                    if args.use_slots:
-                        logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
-                                                                                           input_masks=input_masks,
-                                                                                           lengths=lengths,
-                                                                                           intent_labels=intent_labels,
-                                                                                           slot_labels=slot_labels)
-
-                    else:
-                        logits_intents, intent_loss, loss = model(input_ids=input_ids,
-                                                                  input_masks=input_masks,
-                                                                  lengths=lengths,
-                                                                  intent_labels=intent_labels)
-
-                    loss.backward()
-                store_grads(model.named_parameters(), grads, grad_dims, old_task_i)
-
-            # Solve the dual of the quadratic equation
-            indx = torch.LongTensor(list(range(i_task))).cuda() if torch.cuda.device_count() > 0 \
-                else torch.LongTensor(list(range(i_task)))
-
-            dotp = torch.mm(grads[:, i_task].unsqueeze(0),
-                            grads.index_select(1, indx))
-
-            # check if the constraints have been violated
-            if (dotp < 0).sum() != 0:
-                # If it is the case:
-                # Copy the gradients
-                project2cone2(grads[:, i_task].unsqueeze(1),
-                              grads.index_select(1, indx))
-
-                # Update the named_parameters accordingly
-                overwrite_grad(model.named_parameters(), grads[:, i_task], grad_dims)
-        saved_grads = {}
-
-    else:
-        loss = loss.mean()
-
-        loss.backward()
-        saved_grads = {}
-
-    optimizer.step()
-
-    if args.use_slots:
-        return intent_loss, slot_loss, saved_grads
-    else:
-        return intent_loss, saved_grads
-
-
-def evaluate_report(data_stream,
-                    k,
-                    train_lang,
-                    lang,
-                    args,
-                    dataset,
+def evaluate_report(dataset,
+                    data_stream,
                     model,
-                    writer,
-                    i, # index of the language being evaluated on
+                    train_lang,
+                    train_idx,
+                    test_lang,
+                    test_idx,
                     num_steps,
+                    writer,
+                    name,
                     out_path=None,
-                    verbose=False):
+                    verbose=False,
+                    prior_mbert=None,
+                    prior_intents=None,
+                    prior_slots=None):
 
-    outputs = nlu_evaluation(model,
-                             dataset,
+    outputs = nlu_evaluation(dataset,
                              data_stream["stream"],
                              data_stream["size"],
+                             model,
                              args.use_slots,
-                             i, # index of the language being evaluated on
-                             out_path,
-                             verbose)
+                             test_idx,
+                             out_path=out_path,
+                             verbose=verbose,
+                             prior_mbert=prior_mbert,
+                             prior_intents=prior_intents,
+                             prior_slots=prior_slots)
 
-    output_text_format = "----size=%d, k=%d, i=%d, and lang=%s" % (data_stream["size"],
-                                                                   k,
-                                                                   i,
-                                                                   lang)
+    output_text_format = "----size=%d, test_index=%d, and lang=%s" % (data_stream["size"],
+                                                                      test_idx,
+                                                                      test_lang)
 
     metrics = {}
     if not args.use_slots:
-        test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1 = outputs
+        intent_acc, intent_prec, intent_rec, intent_f1 = outputs
+        avg_perf = intent_acc
 
     else:
-        test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, \
-            test_slot_prec, test_slot_rec, test_slot_f1 = outputs
+        intent_acc, intent_prec, intent_rec, intent_f1, slot_prec, slot_rec, slot_f1 = outputs
 
-        output_text_format += " SLOTS perf: (prec=%f, rec=%f, f1=%f) " % (round(test_slot_prec*100, 1),
-                                                                          round(test_slot_rec*100, 1),
-                                                                          round(test_slot_f1*100, 1))
+        output_text_format += " SLOTS perf: (prec=%f, rec=%f, f1=%f) " % (round(slot_prec*100, 1),
+                                                                          round(slot_rec*100, 1),
+                                                                          round(slot_f1*100, 1))
 
-        metrics.update({train_lang+'_'+str(i)+'_test_slot_prec_'+str(k)+'_'+lang: test_slot_prec})
-        metrics.update({train_lang+'_'+str(i)+'_test_slot_rec_'+str(k)+'_'+lang: test_slot_rec})
-        metrics.update({train_lang+'_'+str(i)+'_test_slot_f1_'+str(k)+'_'+lang: test_slot_f1})
+        avg_perf = (intent_acc + slot_f1) / 2
 
-    metrics.update({train_lang+'_'+str(i)+'_test_intent_acc_'+str(k)+'_'+lang: test_intent_acc})
-    metrics.update({train_lang+'_'+str(i)+'_test_intent_prec_'+str(k)+'_'+lang: test_intent_prec})
-    metrics.update({train_lang+'_'+str(i)+'_test_intent_rec_'+str(k)+'_'+lang: test_intent_rec})
-    metrics.update({train_lang+'_'+str(i)+'_test_intent_f1_'+str(k)+'_'+lang: test_intent_f1})
+        metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_slot_prec_'+test_lang+'_'+str(test_idx): slot_prec})
+        metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_slot_rec_'+test_lang+'_'+str(test_idx): slot_rec})
+        metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_slot_f1_'+test_lang+'_'+str(test_idx): slot_f1})
 
-    output_text_format += " INTENTS perf: (acc: %f, prec: %f, rec: %f, f1: %f)" % (round(test_intent_acc*100, 1),
-                                                                                   round(test_intent_prec*100, 1),
-                                                                                   round(test_intent_rec*100, 1),
-                                                                                   round(test_intent_f1*100, 1))
+    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_acc_'+test_lang+'_'+str(test_idx): intent_acc})
+    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_prec_'+test_lang+'_'+str(test_idx): intent_prec})
+    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_rec_'+test_lang+'_'+str(test_idx): intent_rec})
+    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_f1_'+test_lang+'_'+str(test_idx): intent_f1})
+
+    output_text_format += " INTENTS perf: (acc: %f, prec: %f, rec: %f, f1: %f)" % (round(intent_acc*100, 1),
+                                                                                   round(intent_prec*100, 1),
+                                                                                   round(intent_rec*100, 1),
+                                                                                   round(intent_f1*100, 1))
 
     print(output_text_format)
     for k, v in metrics.items():
         writer.add_scalar(k, v, num_steps)
 
-    return metrics
+    return metrics, avg_perf
 
 
-def set_optimizer(model, args):
+def set_optimizer(model):
     optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()),
                      betas=(args.beta_1, args.beta_2),
                      eps=args.adam_eps,
@@ -438,7 +599,7 @@ def set_optimizer(model, args):
     return optimizer, scheduler
 
 
-def set_out_dir(args):
+def set_out_dir():
 
     if not os.path.isdir(args.out_dir):
         os.mkdir(args.out_dir)
@@ -545,7 +706,8 @@ def set_out_dir(args):
 
     ## Multi-headed architecture
     if args.multi_head_in and not args.multi_head_out:
-        model_dir = os.path.join(model_dir, "multi_head_in")
+        model_dir = os.path.join(model_dir, "multi_head_in_"+"-".join(args.emb_enc_lang_spec))
+
         if not os.path.isdir(model_dir):
             os.mkdir(model_dir)
 
@@ -571,66 +733,12 @@ def set_out_dir(args):
     return out_dir, metrics_path
 
 
-def compute_dev_performance(args,
-                            model,
-                            dataset,
-                            dev_stream,
-                            i,
-                            k,
-                            train_lang,
-                            writer,
-                            num_steps,
-                            out_path=None,
-                            verbose=False):
-
-    outputs = nlu_evaluation(model,
-                             dataset,
-                             dev_stream["stream"],
-                             dev_stream["size"],
-                             args.use_slots,
-                             i,
-                             out_path,
-                             verbose)
-
-    output_text_format = "----size=%d, k=%d, i=%d" % (dev_stream["size"],
-                                                      k,
-                                                      i)
-
-    metrics = {}
-    if not args.use_slots:
-        dev_intent_acc, dev_intent_prec, dev_intent_rec, dev_intent_f1 = outputs
-
-        avg_perf = dev_intent_acc
-
-    else:
-        dev_intent_acc, dev_intent_prec, dev_intent_rec, dev_intent_f1, \
-            dev_slot_prec, dev_slot_rec, dev_slot_f1 = outputs
-
-        output_text_format += " SLOTS perf: (prec=%f, rec=%f, f1=%f) " % (round(dev_slot_prec*100, 1),
-                                                                          round(dev_slot_rec*100, 1),
-                                                                          round(dev_slot_f1*100, 1))
-
-        avg_perf = (dev_intent_acc + dev_slot_f1) / 2
-
-        metrics.update({train_lang+'_'+str(i)+'_dev_slot_prec_'+str(k): dev_slot_prec})
-        metrics.update({train_lang+'_'+str(i)+'_dev_slot_rec_'+str(k): dev_slot_rec})
-        metrics.update({train_lang+'_'+str(i)+'_dev_slot_f1_'+str(k): dev_slot_f1})
-
-    metrics.update({train_lang+'_'+str(i)+'_dev_intent_acc_'+str(k): dev_intent_acc})
-    metrics.update({train_lang+'_'+str(i)+'_dev_intent_prec_'+str(k): dev_intent_prec})
-    metrics.update({train_lang+'_'+str(i)+'_dev_intent_rec_'+str(k): dev_intent_rec})
-    metrics.update({train_lang+'_'+str(i)+'_dev_intent_f1_'+str(k): dev_intent_f1})
-
-    output_text_format += " INTENTS perf: (acc: %f, prec: %f, rec: %f, f1: %f)" % (round(dev_intent_acc*100, 1),
-                                                                                   round(dev_intent_prec*100, 1),
-                                                                                   round(dev_intent_rec*100, 1),
-                                                                                   round(dev_intent_f1*100, 1))
-
-    print(output_text_format)
-    for k, v in metrics.items():
-        writer.add_scalar(k, v, num_steps)
-
-    return avg_perf
+def name_in_list(list, name):
+    flag = False
+    for el in list:
+        if el in name:
+            flag = True
+    return flag
 
 
 def run(out_dir, metrics_path, args):
@@ -745,30 +853,24 @@ def run(out_dir, metrics_path, args):
 
     if args.random_pred:
         metrics = {lang: {} for lang in dataset.test_stream}
-        for lang in dataset.test_stream:
-            metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                                            0,
-                                            "init",
-                                            lang,
-                                            args,
-                                            dataset,
-                                            model,
-                                            writer,
-                                            0,
-                                            0,
-                                            out_path=os.path.join(out_dir, "initial_perf.txt"),
-                                            verbose=args.verbose)
+        for test_idx, test_lang in enumerate(dataset.test_stream):
+            metrics[test_lang], _ = evaluate_report(dataset,
+                                                    dataset.test_stream[test_lang],
+                                                    model,
+                                                    test_lang,
+                                                    test_idx,
+                                                    test_lang,
+                                                    test_idx,
+                                                    0,
+                                                    writer,
+                                                    name="init",
+                                                    out_path=os.path.join(out_dir, "initial_perf.txt"),
+                                                    verbose=args.verbose)
 
-        with open(os.path.join(metrics_path, "final_metrics.pickle"), "wb") as output_file:
+        with open(os.path.join(metrics_path, "initial_metrics.pickle"), "wb") as output_file:
             pickle.dump(metrics, output_file)
 
     optimizer, scheduler = set_optimizer(model, args)
-
-    # if torch.cuda.device_count() > 1:
-    #     eff_num_intents_task = model.module.eff_num_intents_task
-    # else:
-    #     eff_num_intents_task = model.eff_num_intents_task
-    # print("After addition of OTHER type => eff_num_intents_task = ", eff_num_intents_task)
 
     if args.setup_opt == "cil":
         """ 
@@ -790,7 +892,7 @@ def run(out_dir, metrics_path, args):
                 if subtask["size"] == 0:
                     print("Skipped task:", i, " in lang:", lang)
                     continue
-                    
+
                 for epoch in tqdm(range(args.epochs)):
                     gc.collect()
                     num_steps += 1
@@ -849,18 +951,19 @@ def run(out_dir, metrics_path, args):
 
                 for k in range(0, i+1):
                     if dataset.test_stream[lang][k]["size"] > 0:
-                        metrics[k] = evaluate_report(dataset.test_stream[lang][k],
-                                                     k,
-                                                     lang,
-                                                     lang,
-                                                     args,
-                                                     dataset,
+                        metrics[k] = evaluate_report(dataset,
+                                                     dataset.test_stream[lang][k],
                                                      model,
-                                                     writer,
+                                                     lang,
                                                      i,
+                                                     lang,
+                                                     k,
                                                      num_steps,
+                                                     writer,
+                                                     name="test",
                                                      out_path=os.path.join(out_dir,
-                                                                           lang+"_test_perf-train_"+str(i)+"-test_"+str(k)),
+                                                                           lang+"_test_perf-train_"+str(i)+"-test_"
+                                                                           + str(k)),
                                                      verbose=args.verbose)
                     else:
                         print("Skipped task:", k, " in lang:", lang)
@@ -872,16 +975,16 @@ def run(out_dir, metrics_path, args):
             metrics = {k: {} for k in range(0, len(dataset.train_stream[lang]))}
             for k in range(0, len(dataset.train_stream[lang])):
                 if dataset.test_stream[lang][k]["size"] > 0:
-                    metrics[k] = evaluate_report(dataset.test_stream[lang][k],
-                                                 k,
-                                                 lang,
-                                                 lang,
-                                                 args,
-                                                 dataset,
+                    metrics[k] = evaluate_report(dataset,
+                                                 dataset.test_stream[lang][k],
                                                  model,
-                                                 writer,
+                                                 lang,
                                                  i,
+                                                 lang,
+                                                 k,
                                                  num_steps,
+                                                 writer,
+                                                 name="test",
                                                  out_path=os.path.join(out_dir,
                                                                        lang+"End_perf-train_"+str(i)+"-test_"+str(k)),
                                                  verbose=args.verbose)
@@ -1005,35 +1108,67 @@ def run(out_dir, metrics_path, args):
                 pickle.dump(metrics, output_file)
             print("/////////////////////////////////////////////")
 
-    elif args.setup_opt == "cll":
+    elif args.setup_opt in ["cll", "multi-incremental-lang"]:
         """
         Setup 3: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning" 
         - Stream consisting of different combinations of languages.
         => Each stream sees all intents
         """
         # Iterating over the stream of languages
-        params_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream)}
-        grads_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream)}
 
         sample_sizes = []
         best_saved_grads = None
 
-        grad_dims = []
-        for n, param in model.named_parameters():
-            if param.requires_grad:
-                grad_dims.append(param.data.numel())
-        grads = torch.Tensor(sum(grad_dims), len(dataset.train_stream)).cuda()
+        subtask_size = {i: 0 for i in range(len(dataset.train_stream))}
 
         best_model = None
 
-        for i, subtask in enumerate(dataset.train_stream):
+        if args.multi_head_in:
+            if args.emb_enc_lang_spec == ["all"]:
+                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
+                    .named_parameters()} for _ in dataset.train_stream]
+            else:
+                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
+                    .named_parameters() if name_in_list(args.emb_enc_lang_spec, k)} for _ in dataset.train_stream]
+
+        else:
+            prior_mbert = [None for _ in dataset.train_stream]
+
+        if args.multi_head_out:
+            prior_intents = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, num_intents)
+                .named_parameters()} for _ in dataset.train_stream]
+
+            prior_slots = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, eff_num_slot)
+                .named_parameters()} for _ in dataset.train_stream]
+
+            #prior_crf = [CRFLayer(eff_num_slot, device) for _ in dataset.train_stream]
+        else:
+            prior_intents = [None for _ in dataset.train_stream]
+            prior_slots = [None for _ in dataset.train_stream]
+            #prior_crf = [None for _ in dataset.train_stream]
+
+        # Used for comparison only and to reinitialize trans_model but without using it as a reference
+        original_mbert = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
+        original_intent = copy.deepcopy(model.intent_classifier)
+        original_slot = copy.deepcopy(model.slot_classifier)
+        #original_crf = copy.deepcopy(model.crf_layer)
+
+        mean_all_stream = []
+        sum_all_stream = []
+
+        for train_idx, subtask in enumerate(dataset.train_stream):
             dev_perf_best = 0.0
             sample_sizes.append(int(subtask["size"]*args.old_task_prop))
             num_steps = 0
             num_iter = subtask["size"]//args.batch_size
             train_lang = subtask["lang"]
             stream = subtask["stream"]
-            if i > 0:
+            if args.first_lang:
+                start_freeze = 0
+            else:
+                start_freeze = 1
+
+            if train_idx > start_freeze:
                 for n, p in model.named_parameters():
                     if args.freeze_bert:
                         if p.requires_grad and 'trans_model' in n:
@@ -1046,155 +1181,182 @@ def run(out_dir, metrics_path, args):
                         if p.requires_grad and 'slot_classifier' in n:
                             p.requires_grad = False
 
+            subtask_size[train_idx] = subtask["size"]
+
+            """ 1. Reinitialize linear layers for each new language """
+            if args.multi_head_in or args.multi_head_out:
+                model_dict = model.state_dict()
+
+            if args.multi_head_in:
+                if args.emb_enc_lang_spec == ["all"]:
+                    trans_model_dict = {"trans_model."+k: v for k, v in original_mbert.named_parameters()}
+                else:
+                    trans_model_dict = {"trans_model."+k: v for k, v in original_mbert.named_parameters()
+                                        if name_in_list(args.emb_enc_lang_spec, k)}
+
+                model_dict.update(trans_model_dict)
+
+            if args.multi_head_out:
+                intent_classifier_dict = {"intent_classifier."+k: v for k, v in original_intent.named_parameters()}
+                model_dict.update(intent_classifier_dict)
+
+                slot_classifier_dict = {"slot_classifier."+k: v for k, v in original_slot.named_parameters()}
+                model_dict.update(slot_classifier_dict)
+
+                # crf_dict = {k: v for k, v in original_crf.named_parameters()}
+                # model_dict.update(crf_dict)
+
+            if args.multi_head_in or args.multi_head_out:
+                model.load_state_dict(model_dict)
+
             for epoch in tqdm(range(args.epochs)):
                 gc.collect()
                 num_steps += 1
-                for j in range(num_iter):
-                    if args.use_slots:
-                        intent_loss, slot_loss, saved_grads = train(params_old_tasks,
-                                                                    grads_old_tasks,
-                                                                    args,
-                                                                    optimizer,
-                                                                    model,
-                                                                    dataset,
-                                                                    stream,
-                                                                    subtask["size"],
-                                                                    writer,
-                                                                    epoch,
-                                                                    i, # the order in the stream of training languages
-                                                                    j, # the number of iterations
-                                                                    old_dataset=dataset.train_stream, # all dataset to get old stream
-                                                                    sample_sizes=sample_sizes,
-                                                                    grads=grads,
-                                                                    grad_dims=grad_dims)
+                for step_iter in range(num_iter):
+                    train_outputs = train(optimizer,
+                                          model,
+                                          checkpoint_dir,
+                                          dataset,
+                                          stream,
+                                          subtask_size,
+                                          writer,
+                                          epoch,
+                                          train_idx,
+                                          step_iter,
+                                          old_dataset=dataset.train_stream, # all dataset to get old stream
+                                          sample_sizes=sample_sizes)
 
-                        if j % args.eval_steps == 0:
-                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
+                    if args.use_slots:
+                        intent_loss, slot_loss, params, saved_grads = train_outputs
+                        if step_iter % args.eval_steps == 0:
+                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
                                                                                                intent_loss.mean(),
                                                                                                slot_loss.mean()))
-
                     else:
-                        intent_loss, saved_grads = train(params_old_tasks,
-                                                         grads_old_tasks,
-                                                         args,
-                                                         optimizer,
-                                                         model,
-                                                         dataset,
-                                                         stream,
-                                                         subtask["size"],
-                                                         writer,
-                                                         epoch,
-                                                         i, # the order in the stream of training languages
-                                                         j, # the number of iterations
-                                                         old_dataset=dataset.train_stream, # all dataset to get old stream
-                                                         sample_sizes=sample_sizes,
-                                                         grads=grads,
-                                                         grad_dims=grad_dims)
-
+                        intent_loss, params, saved_grads = train_outputs
                         if j % args.eval_steps == 0:
-                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
+                            print('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
+                                                                           intent_loss.mean()))
 
-                    #if j == 15:
-                    #    exit(0)
                 print(">>>>>>> Dev Performance >>>>>")
-                dev_perf = compute_dev_performance(args,
-                                                   model,
-                                                   dataset,
-                                                   dataset.dev_stream[i],
-                                                   i, # the order in the stream of training languages
-                                                   i, # the order in the stream of training languages
-                                                   train_lang,
-                                                   writer,
-                                                   num_steps,
-                                                   out_path=None)
-                                                   # out_path=os.path.join(out_dir,
-                                                   #                      "Dev_perf-Epoch_" + str(epoch) +
-                                                   #                      "-train_"+train_lang))
+                dev_out_path = None
+                if args.save_dev_pred:
+                    dev_out_path = os.path.join(out_dir,
+                                                "Dev_perf-Epoch_" + str(epoch) + "-train_" + train_lang)
+
+                _, dev_perf = evaluate_report(dataset,
+                                              dataset.dev_stream[train_idx],
+                                              model,
+                                              train_lang,
+                                              train_idx,
+                                              train_lang,
+                                              train_idx,
+                                              num_steps,
+                                              writer,
+                                              name="dev",
+                                              out_path=dev_out_path)
 
                 if dev_perf > dev_perf_best:
-                    best_saved_grads = saved_grads
                     dev_perf_best = dev_perf
 
-                    #torch.save(args, args_save_file)
-                    #torch.save(model.state_dict(), model_save_file)
-                    #torch.save(optimizer.state_dict(), optim_save_file)
+                    if args.save_model:
+                        torch.save(args, args_save_file)
+                        torch.save(model.state_dict(), model_save_file)
+                        torch.save(optimizer.state_dict(), optim_save_file)
 
                     best_model = model
-
-                # else:
-                #     best_model = TransNLUCRF(model_trans,
-                #                              eff_num_intent,
-                #                              device=device,
-                #                              use_slots=args.use_slots,
-                #                              num_slots=eff_num_slot)
-                #
-                #     if torch.cuda.device_count() > 1:
-                #         best_model = nn.DataParallel(best_model)
-                #
-                #     best_model.cuda()#to(device)
-                #
-                #     model_dict = torch.load(model_save_file)
-                #     best_model.load_state_dict(model_dict)
 
                 if best_model is None:
                     best_model = model
 
-                # metrics = {lang: {} for lang in dataset.test_stream}
-                # for lang in dataset.test_stream:
-                #     metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                #                                     0,
-                #                                     train_lang,
-                #                                     lang,
-                #                                     args,
-                #                                     dataset,
-                #                                     best_model,
-                #                                     writer,
-                #                                     i,
-                #                                     num_steps,
-                #                                     out_path=os.path.join(out_dir,
-                #                                                           "Test_perf-Epoch_" + str(epoch) +
-                #                                                            "-train_"+train_lang+"-test_"+lang)
-                #                                     verbose=args.verbose)
-                #
-                # with open(os.path.join(metrics_path, "epoch_"+str(epoch)+"_metrics_"+str(i)+".pickle"), "wb") as output_file:
-                #     pickle.dump(metrics, output_file)
+                if args.save_test_every_epoch:
+                    metrics = {lang: {} for lang in dataset.test_stream}
 
-            if best_saved_grads is None:
-                best_saved_grads = saved_grads
+                    for test_idx, test_lang in enumerate(dataset.test_stream):
+                        metrics[test_lang], _ = evaluate_report(dataset,
+                                                                dataset.test_stream[test_lang],
+                                                                best_model,
+                                                                train_lang,
+                                                                train_idx,
+                                                                test_lang,
+                                                                test_idx,
+                                                                num_steps,
+                                                                writer,
+                                                                name="test",
+                                                                out_path=os.path.join(out_dir,
+                                                                                      "Test_perf-Epoch_" + str(epoch)
+                                                                                      + "-train_" + train_lang
+                                                                                      + "-test_" + test_lang),
+                                                                verbose=args.verbose,
+                                                                prior_mbert=prior_mbert[test_idx],
+                                                                prior_intents=prior_intents[test_idx],
+                                                                prior_slots=prior_slots[test_idx])
 
-            params = {n: p for n, p in best_model.named_parameters() if p.requires_grad} # current task parameters to be saved
+                    with open(os.path.join(metrics_path,
+                                           "epoch_"+str(epoch)+"_metrics_"+str(train_idx)+".pickle"), "wb") \
+                            as output_file:
+                        pickle.dump(metrics, output_file)
 
-            _means = {n: {} for n, p in best_model.named_parameters() if p.requires_grad}
+            """ 2. Saving the trained weights of MBERT in each language to be used later on in testing stage"""
 
-            grads_old_tasks[i] = best_saved_grads
+            mbert_task = copy.deepcopy(model.trans_model)
+            intents_task = copy.deepcopy(model.intent_classifier)
+            slots_task = copy.deepcopy(model.slot_classifier)
 
-            for n, p in deepcopy(params).items():
-                # _means[n] = variable(p.data)
-                _means[n] = p.data.cpu() # Previous task parameters
+            if args.multi_head_in:
+                prior_mbert[train_idx] = {k: v for k, v in mbert_task.named_parameters()
+                                          if name_in_list(args.emb_enc_lang_spec, k)}
 
-            params_old_tasks[i] = _means
+            if args.multi_head_out:
+                prior_intents[train_idx] = {k: v for k, v in intents_task.named_parameters()}
+                prior_slots[train_idx] = {k: v for k, v in slots_task.named_parameters()}
+
+            if args.save_change_params:
+                print("After training on language: ", train_idx)
+                mean_all, sum_all = compute_change(mbert_task, original_mbert,
+                                                   intents_task, original_intent,
+                                                   slots_task, original_slot)
+                mean_all_stream.append(mean_all)
+                sum_all_stream.append(sum_all)
+
+            print("Saving the best model at the end of the training stream for that language ....")
+            params_save_file = os.path.join(checkpoint_dir, "pytorch_params_"+str(train_idx))
+            grads_save_file = os.path.join(checkpoint_dir, "pytorch_grads_"+str(train_idx))
+
+            if args.cont_learn_alg != "gem":
+                if params:
+                    with open(params_save_file, "wb") as file:
+                        pickle.dump(params, file)
+
+                if saved_grads:
+                    with open(grads_save_file, "wb") as file:
+                        pickle.dump(saved_grads, file)
 
             print("------------------------------------ TESTING At the end of the training")
             metrics = {lang: {} for lang in dataset.test_stream}
-            t_index = 0
-            for lang in dataset.test_stream:
-                metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                                                0,
-                                                train_lang,
-                                                lang,
-                                                args,
-                                                dataset,
-                                                best_model,
-                                                writer,
-                                                t_index, # index of the language being evaluated on
-                                                num_steps,
-                                                out_path=os.path.join(out_dir,
-                                                                      "End_test_perf-train_"+train_lang+"-test_"+lang),
-                                                verbose=args.verbose)
-                t_index += 1
+            for test_idx, test_lang in enumerate(dataset.test_stream):
+                metrics[test_lang], _ = evaluate_report(dataset,
+                                                        dataset.test_stream[test_lang],
+                                                        best_model,
+                                                        train_lang,
+                                                        train_idx,
+                                                        test_lang,
+                                                        test_idx,
+                                                        num_steps,
+                                                        writer,
+                                                        name="test",
+                                                        out_path=os.path.join(out_dir, "End_test_perf-train_"+train_lang
+                                                                               + "-test_" + test_lang),
+                                                        verbose=args.verbose,
+                                                        prior_mbert=prior_mbert[test_idx],
+                                                        prior_intents=prior_intents[test_idx],
+                                                        prior_slots=prior_slots[test_idx])
 
-            with open(os.path.join(metrics_path, "final_metrics_"+str(i)+".pickle"), "wb") as output_file:
+            with open(os.path.join(metrics_path, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
                 pickle.dump(metrics, output_file)
+
+        with open(os.path.join(metrics_path, "mean_all_stream_mbert.pickle"), "wb") as output_file:
+            pickle.dump(mean_all_stream, output_file)
 
     elif args.setup_opt == "cil-ll":
         """
@@ -1294,140 +1456,6 @@ def run(out_dir, metrics_path, args):
                             print("Skipped task:", k, " in lang:", lang)
 
             with open(os.path.join(metrics_path, "final_metrics_"+str(i)+".pickle"), "wb") as output_file:
-                pickle.dump(metrics, output_file)
-
-    elif args.setup_opt == "multi-incremental-lang":
-        """
-        Setup 6: Multi-task/Joint Learning: train on all languages and intent classes at the same time 
-        """
-        _lambda = 20
-        sample_sizes = []
-        for i, subtask in enumerate(dataset.train_stream):
-            sample_sizes.append(subtask["size"]//10)
-            dev_perf_best = 0.0
-            num_steps = 0
-            num_iter = subtask["size"]//args.batch_size
-            train_lang = subtask["lang"]
-            stream = subtask["stream"]
-            for epoch in tqdm(range(args.epochs)):
-                gc.collect()
-
-                num_steps += 1
-
-                for j in range(num_iter):
-                    if args.use_slots:
-                        intent_loss, slot_loss = train(args,
-                                                       optimizer,
-                                                       model,
-                                                       dataset,
-                                                       stream,
-                                                       writer,
-                                                       epoch,
-                                                       0,
-                                                       j,
-                                                       old_dataset=dataset.train_stream, # all dataset to get old stream
-                                                       sample_sizes=sample_sizes,
-                                                       _lambda=_lambda)
-
-                        if j % args.eval_steps == 0:
-                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                               intent_loss.mean(),
-                                                                                               slot_loss.mean()))
-                    else:
-                        intent_loss = train(args,
-                                            optimizer,
-                                            model,
-                                            dataset,
-                                            stream,
-                                            writer,
-                                            epoch,
-                                            0,
-                                            j,
-                                            old_dataset=dataset.train_stream, # all dataset to get old stream
-                                            sample_sizes=sample_sizes,
-                                            _lambda=_lambda)
-
-                        if j % args.eval_steps == 0:
-                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
-                # At the end of each epoch, we compute the performance on the dev set
-                dev_perf = compute_dev_performance(args,
-                                                   model,
-                                                   dataset,
-                                                   dataset.dev_stream,
-                                                   i,
-                                                   i,
-                                                   train_lang,
-                                                   writer,
-                                                   num_steps,
-                                                   out_path=os.path.join(out_dir,
-                                                                         "Dev_perf-Epoch_" + str(epoch) +
-                                                                         "-train_"+train_lang))
-                if dev_perf > dev_perf_best:
-                    dev_perf_best = dev_perf
-                    checkpoint_dir = os.path.join(out_dir, "checkpoint")
-                    torch.save(args, os.path.join(checkpoint_dir, "training_args.bin"))
-
-                    torch.save(optimizer.state_dict(), os.path.join(checkpoint_dir, "optimizer.pt"))
-                    model_to_save = model.module if hasattr(model, "module") else model
-                    model_to_save.save_pretrained(checkpoint_dir)
-                    tokenizer.save_pretrained(checkpoint_dir)
-
-                    best_model = model
-                else:
-                    best_model = TransNLUCRF(model_trans,
-                                             eff_num_intent,
-                                             device=device,
-                                             use_slots=args.use_slots,
-                                             num_slots=eff_num_slot)
-
-                    if torch.cuda.device_count() > 1:
-                        best_model = nn.DataParallel(best_model)
-
-                    best_model.cuda()
-
-                    model_dict = torch.load(checkpoint_dir+"pytorch_model.bin")
-                    best_model.load_state_dict(model_dict)
-                    best_model.cuda()
-
-                metrics = {lang: {} for lang in dataset.test_stream}
-                for lang in dataset.test_stream:
-                    metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                                                    i,
-                                                    train_lang,
-                                                    lang,
-                                                    args,
-                                                    dataset,
-                                                    best_model,
-                                                    writer,
-                                                    i,
-                                                    num_steps,
-                                                    out_path=os.path.join(out_dir,
-                                                                          "Test_perf-Epoch_"+epoch+"-train_"+train_lang
-                                                                          + "-test_"+lang),
-                                                    verbose=args.verbose)
-
-                with open(os.path.join(metrics_path, train_lang+"_epoch_"+str(epoch)+"_metrics.pickle"), "wb") as output_file:
-                    pickle.dump(metrics, output_file)
-
-            print("Evaluation at the end of all epochs")
-            metrics = {lang: {} for lang in dataset.test_stream}
-            for lang in dataset.test_stream:
-                metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                                                i,
-                                                train_lang,
-                                                lang,
-                                                args,
-                                                dataset,
-                                                best_model,
-                                                writer,
-                                                i,
-                                                num_steps,
-                                                out_path=os.path.join(out_dir,
-                                                                      "End_perf-train_"+train_lang + "-test_"+lang),
-                                                verbose=args.verbose)
-
-            with open(os.path.join(metrics_path, "final_metrics_"+train_lang+".pickle"), "wb") as output_file:
                 pickle.dump(metrics, output_file)
 
     elif args.setup_opt == "multi":
@@ -1581,6 +1609,15 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', help='If true, return golden labels and predictions ',
                         action='store_true')
 
+    parser.add_argument('--save_dev_pred', help='If true, save dev perf ',
+                        action='store_true')
+
+    parser.add_argument('--save_test_every_epoch', help='If true, save test at the end of each epoch ',
+                        action='store_true')
+
+    parser.add_argument('--save_change_params', help='If true, save test at the end of each epoch ',
+                        action='store_true')
+
     parser.add_argument('--no_debug', help='If true, return golden labels and predictions ',
                         action='store_true')
 
@@ -1595,6 +1632,9 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_bert", help="Whether to freeze all layers in bert after first language",
                         action='store_true')
 
+    parser.add_argument("--first_lang", help="Whether to freeze from the first language",
+                        action='store_true')
+
     parser.add_argument("--freeze_linear", help="Whether to freeze all task-specific layers after first language",
                         action='store_true')
 
@@ -1604,6 +1644,25 @@ if __name__ == "__main__":
     parser.add_argument("--multi_head_in", help="Whether to use multiple heads in the input of inputs that would"
                                                 "imply the separation of the vocabulary of M-BERT",
                         action='store_true')
+
+    parser.add_argument("--emb_enc_lang_spec", help="Which layer in the embeddings or the encoder to tune for each"
+                                                    "language independently.",
+                        nargs="+", default=["embeddings"],
+                        choices=["embeddings",
+                                 "encoder.layer.0",
+                                 "encoder.layer.1",
+                                 "encoder.layer.2",
+                                 "encoder.layer.3",
+                                 "encoder.layer.4",
+                                 "encoder.layer.5",
+                                 "encoder.layer.6",
+                                 "encoder.layer.7",
+                                 "encoder.layer.8",
+                                 "encoder.layer.9",
+                                 "encoder.layer.10",
+                                 "encoder.layer.11",
+                                 "pooler",
+                                 "all"])
 
     parser.add_argument("--multi_head_out", help="Whether to use multiple heads in the outputs that would"
                                                  "imply the use of different linear layers",
@@ -1671,9 +1730,9 @@ if __name__ == "__main__":
                         type=int, default=20)
 
     args = parser.parse_args()
-    set_seed(args)
+    set_seed()
 
-    out_dir, metrics_path = set_out_dir(args)
+    out_dir, metrics_path = set_out_dir()
 
     if args.no_debug:
         stdoutOrigin = sys.stdout
