@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.utils.data
+from downstreammodels.crf import CRFLayer
 
 
 def variable(t: torch.Tensor, use_cuda=True, **kwargs):
@@ -31,6 +32,8 @@ class EWC(object):
         self._grads_test = {n: p for n, p in self.model.named_parameters() if p.requires_grad}
         self._means = {}
         self._precision_matrices = self._diag_fisher()
+
+        self.crf_layer = CRFLayer(self.num_slots, self.device)
 
         for n, p in deepcopy(self.params).items():
             self._means[n] = variable(p.data) # Previous task parameters
@@ -69,11 +72,9 @@ class EWC(object):
                                                                intent_labels=intent_labels)
             output_intents = logits_intents.view(1, -1)
             label_intents = output_intents.max(1)[1].view(-1)
-            loss = F.nll_loss(F.log_softmax(output_intents, dim=1), label_intents)
+            loss = torch.nn.CrossEntropyLoss()(output_intents, label_intents)
             if self.use_slots:
-                #output_slots = logits_slots[0]
-                #label_slots = torch.tensor(logits_slots[0])
-                #loss += F.nll_loss(F.log_softmax(output_slots, dim=1), label_slots)
+                slot_loss = self.crf_layer.loss(logits_slots, self.crf_layer(logits_slots))
                 loss += slot_loss
 
             loss.backward()
@@ -90,11 +91,6 @@ class EWC(object):
     def penalty(self, model):
         loss = 0
         for n, p in model.named_parameters():
-            print("self._precision_matrices[n].shape: ", self._precision_matrices[n].shape)
-            print("p.shape: ", p.shape)
-            print("self._means[n].shape: ", self._means[n].shape)
             _loss = self._precision_matrices[n] * (p - self._means[n]) ** 2
-            print("_loss: ", _loss)
             loss += _loss.sum()
-            print(" => loss: ", loss)
         return loss
