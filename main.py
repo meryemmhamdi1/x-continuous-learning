@@ -3,7 +3,6 @@ import argparse
 from consts import intent_types, slot_types
 import gc
 import numpy as np
-from downstreammodels.transNLUCRF import TransNLUCRF
 from transformers_config import MODELS_dict
 from tqdm import tqdm
 from torch.optim import Adam
@@ -23,6 +22,9 @@ from contlearnalg.GEM import overwrite_grad, project2cone2
 from downstreammodels.crf import CRFLayer
 import nvidia_smi
 import copy
+from contlearnalg.EWC_grads import EWC
+from contlearnalg.GEM import GEM
+from utils import format_store_grads
 
 gpus_list = list(range(torch.cuda.device_count()))
 
@@ -124,35 +126,10 @@ def compute_change(mbert1, mbert2,
     return mean_layers, sum_layers
 
 
-def store_grads(pp,
-                grads,
-                grad_dims,
-                tid,
-                checkpoint_dir):
-    """
-        This stores parameter gradients of one task at a time.
-        pp: parameters
-        grads: gradients
-        grad_dims: list with number of parameters per layers
-        tid: task id
-    """
-    # store the gradients
-    grads.fill_(0.0)
-    cnt = 0
-    for n, p in pp:
-        if p.grad is not None:
-            beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
-            en = sum(grad_dims[:cnt + 1])
-            grads[beg: en].copy_(p.grad.data.view(-1))
-        cnt += 1
-
-    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(tid)), "wb") as file:
-        pickle.dump(grads, file)
-
-
 def train(optimizer,
           model,
-          checkpoint_dir,
+          grad_dims,
+          cont_learn_alg,
           dataset,
           subtask,
           subtask_size,
@@ -160,7 +137,7 @@ def train(optimizer,
           epoch,
           i_task,
           num_steps,
-          old_dataset=None,
+          checkpoint_dir,
           sample_sizes=[]):
 
     optimizer.zero_grad()
@@ -197,61 +174,7 @@ def train(optimizer,
 
     if args.cont_learn_alg == "ewc":
         if i_task > 0:
-            # the list of previous tasks
-            # batches_list = []
-            # for sub_task_i in range(i_task):
-            #     for _ in range(sample_sizes[sub_task_i]):
-            #         batch, _ = dataset.next_batch(1, old_dataset[sub_task_i]["stream"])
-            #         batches_list.append(batch)
-            #
-            # ewc = EWC(model,
-            #           batches_list,
-            #           args.use_slots,
-            #           device,
-            #           args.use_online)
-            # print((args.ewc_lambda / 2) * ewc.penalty(model))
-
-            reg_term = 0
-            if args.use_online:
-                fisher_param = {n: 0 for n, p in model.named_parameters() if p.requires_grad}
-                for fj in range(1, i_task):
-                    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(i_task-fj)), "rb") as file:
-                        grads = pickle.load(file)
-
-                    for n, p in model.named_parameters():
-                        grad_k = grads[n]
-                        fisher_param[n] += (args.gamma_ewc ** (fj-1)) * grad_k
-                        del grad_k
-
-                with open(os.path.join(checkpoint_dir, "pytorch_params_"+str(i_task-1)), "rb") as file:
-                    params = pickle.load(file)
-
-                for n, p in model.named_parameters():
-                    p_k = params[n]
-                    _reg_term = fisher_param[n] * (p - p_k) ** 2
-                    del p_k
-                    reg_term += _reg_term.sum()
-            else:
-                for k in range(0, i_task):
-                    with open(os.path.join(checkpoint_dir, "pytorch_params_"+str(k)), "rb") as file:
-                        params = pickle.load(file)
-
-                    with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(k)), "rb") as file:
-                        grads = pickle.load(file)
-
-                    for n, p in model.named_parameters():
-                        torch.cuda.empty_cache()
-                        if p.grad is not None and p.requires_grad:
-                            p_k = params[n]
-                            grad_k = grads[n]
-                            _reg_term = grad_k * (p - p_k) ** 2
-                            del grad_k
-                            del p_k
-                            reg_term += _reg_term.sum()
-
-            print("i_task: ", i_task, " reg_term:", reg_term, " reg_term.grad:", reg_term.grad)
-
-            loss += (args.ewc_lambda / 2) * reg_term
+            loss += (args.ewc_lambda / 2) * cont_learn_alg.penalty(i_task)
 
         loss = loss.mean()
 
@@ -273,91 +196,25 @@ def train(optimizer,
         saved_grads = {n: p for n, p in saved_grads.items()}
 
     elif args.cont_learn_alg == "gem":
-        grad_dims = []
-        for p in model.parameters():
-            grad_dims.append(p.data.numel())
-
-        grads = torch.Tensor(sum(grad_dims))
 
         loss = loss.mean()
         loss.backward()
-        store_grads(model.named_parameters(), grads, grad_dims, i_task, checkpoint_dir) # storing for the current task
+        format_store_grads(model.named_parameters(),
+                           grad_dims,
+                           checkpoint_dir,
+                           i_task)  # storing for the current task
         if i_task > 0:
-            # forward pass on the previous data stored in the memory
-            for old_task_i in range(i_task): # for all old tasks before current task i
+            cont_learn_alg.run(i_task,
+                               sample_sizes,
+                               model)
 
-                for _ in range(sample_sizes[old_task_i]):
-                    model.zero_grad()
-                    batch, _ = dataset.next_batch(1, old_dataset[old_task_i]["stream"])
-
-                    input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
-                    input_texts = batch
-
-                    input_ids = input_ids.cuda()
-                    lengths = lengths.cuda()
-                    input_masks = input_masks.cuda()
-                    intent_labels = intent_labels.cuda()
-                    slot_labels = slot_labels.cuda()
-
-                    if args.use_slots:
-                        logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
-                                                                                           input_masks=input_masks,
-                                                                                           lengths=lengths,
-                                                                                           intent_labels=intent_labels,
-                                                                                           slot_labels=slot_labels)
-
-                    else:
-                        logits_intents, intent_loss, loss = model(input_ids=input_ids,
-                                                                  input_masks=input_masks,
-                                                                  lengths=lengths,
-                                                                  intent_labels=intent_labels)
-
-                    loss.backward()
-                # Store the gradients for the current step
-                store_grads(model.named_parameters(), grads, grad_dims, old_task_i, checkpoint_dir)
-
-            # Solve the dual of the quadratic equation # TODO double check if this is done only once at the end of all
-            indx = torch.LongTensor(list(range(i_task))).cuda() if torch.cuda.device_count() > 0 \
-                else torch.LongTensor(list(range(i_task)))
-
-            print("index:", indx, "index.data.cpu():", indx.data.cpu().numpy()[0])
-            with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(indx.data.cpu().numpy()[0])), "rb") as file:
-                grads_old = pickle.load(file).cuda()
-
-            with open(os.path.join(checkpoint_dir, "pytorch_grads_"+str(i_task)), "rb") as file:
-                grads = pickle.load(file).cuda()
-
-            print("grads_old:", grads_old.shape, "grads_old:", grads_old.unsqueeze(1))
-            print("grads.unsqueeze(0):", grads.unsqueeze(0).shape, " grads:", grads.unsqueeze(0))
-
-            dotp = torch.mm(grads.unsqueeze(0),
-                            grads_old.unsqueeze(1))#grads.index_select(1, indx))
-
-            print("Computed multiplication")
-
-            # check if the constraints have been violated
-            if (dotp < 0).sum() != 0:
-                # If it is the case:
-                # Copy the gradients
-
-                print("Project2cone2")
-                project2cone2(grads.unsqueeze(1),
-                              grads_old.unsqueeze(1))#grads.index_select(1, indx))
-                print("Overwriting grads")
-
-                # Update the named_parameters accordingly
-                overwrite_grad(model.named_parameters(),
-                               grads,
-                               grad_dims)
-                print("Finished")
-
-        saved_grads = grads
         params = {n: p for n, p in model.named_parameters() if p.requires_grad}
+        saved_grads = None
 
     else:
         loss = loss.mean()
-
         loss.backward()
+
         params = None
         saved_grads = None
 
@@ -379,10 +236,15 @@ def nlu_evaluation(dataset,
                    verbose=False,
                    prior_mbert=None,
                    prior_intents=None,
-                   prior_slots=None):
+                   prior_slots=None,
+                   prior_adapter_norm_before=None,
+                   prior_adapter_down_1=None,
+                   prior_adapter_up=None):
 
     print("Evaluating on i_task:", test_idx)
-    if prior_mbert or prior_intents or prior_slots:
+    if prior_mbert or prior_intents or prior_slots or prior_adapter_norm_before or prior_adapter_down_1 \
+            or prior_adapter_up:
+
         model_dict = model.state_dict()
 
         if prior_mbert:
@@ -408,6 +270,24 @@ def nlu_evaluation(dataset,
 
             ### 2. overwrite entries in the existing state dict
             model_dict.update(slot_classifier_dict)
+
+        if prior_adapter_norm_before:
+            adapter_norm_before_dict = {"adapter.adapter_norm_before."+k: v for k, v in prior_adapter_norm_before.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(adapter_norm_before_dict)
+
+        if prior_adapter_down_1:
+            adapter_down_1_dict = {"adapter.adapter_down.1."+k: v for k, v in prior_adapter_down_1.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(adapter_down_1_dict)
+
+        if prior_adapter_up:
+            adapter_up_dict = {"adapter.adapter_up."+k: v for k, v in prior_adapter_up.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(adapter_up_dict)
 
         ### 3. load the new state dict
         model.load_state_dict(model_dict)
@@ -531,7 +411,10 @@ def evaluate_report(dataset,
                     verbose=False,
                     prior_mbert=None,
                     prior_intents=None,
-                    prior_slots=None):
+                    prior_slots=None,
+                    prior_adapter_norm_before=None,
+                    prior_adapter_down_1=None,
+                    prior_adapter_up=None):
 
     outputs = nlu_evaluation(dataset,
                              data_stream["stream"],
@@ -543,7 +426,10 @@ def evaluate_report(dataset,
                              verbose=verbose,
                              prior_mbert=prior_mbert,
                              prior_intents=prior_intents,
-                             prior_slots=prior_slots)
+                             prior_slots=prior_slots,
+                             prior_adapter_norm_before=prior_adapter_norm_before,
+                             prior_adapter_down_1=prior_adapter_down_1,
+                             prior_adapter_up=prior_adapter_up)
 
     output_text_format = "----size=%d, test_index=%d, and lang=%s" % (data_stream["size"],
                                                                       test_idx,
@@ -647,19 +533,15 @@ def set_out_dir():
         return out_dir, metrics_path
 
     if args.use_mono:
-        mono_lang_dir = os.path.join(model_dir, "MONO")
-        if not os.path.isdir(mono_lang_dir):
-            os.mkdir(mono_lang_dir)
-
-        out_dir = os.path.join(mono_lang_dir, args.languages[0])
+        out_dir = os.path.join(model_dir, "MONO", args.languages[0])
         if not os.path.isdir(out_dir):
-            os.mkdir(out_dir)
+            os.makedirs(out_dir)
 
         metrics_path = os.path.join(out_dir, "metrics")
         if not os.path.isdir(metrics_path):
             os.mkdir(metrics_path)
 
-        return mono_lang_dir, metrics_path
+        return out_dir, metrics_path
 
     if args.setup_opt not in ["multi"]:
         if len(args.order_str) > 0:
@@ -721,6 +603,11 @@ def set_out_dir():
         if not os.path.isdir(model_dir):
             os.mkdir(model_dir)
 
+    if args.use_adapters:
+        model_dir = os.path.join(model_dir, "adapters")
+        if not os.path.isdir(model_dir):
+            os.mkdir(model_dir)
+
     out_dir = os.path.join(model_dir, "SEED_"+str(args.seed))
 
     if not os.path.isdir(out_dir):
@@ -758,20 +645,28 @@ def run(out_dir, metrics_path, args):
 
     writer = SummaryWriter(os.path.join(out_dir, 'runs'))
 
-    model_name, tokenizer_alias, model_trans_alias = MODELS_dict[args.trans_model]
+    model_name, tokenizer_alias, model_trans_alias, config_alias = MODELS_dict[args.trans_model]
 
     if "mmhamdi" in args.data_root or "jonmay_231" in args.data_root:
+        config = config_alias.from_pretrained(os.path.join(args.model_root, model_name),
+                                              output_hidden_states=args.use_adapters)
+
         tokenizer = tokenizer_alias.from_pretrained(os.path.join(args.model_root, model_name),
                                                     do_lower_case=True,
                                                     do_basic_tokenize=False)
 
-        model_trans = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
+        model_trans = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name),
+                                                        config=config)
     else:
+        config = config_alias.from_pretrained(model_name,
+                                              output_hidden_states=args.use_adapters)
+
         tokenizer = tokenizer_alias.from_pretrained(model_name,
                                                     do_lower_case=True,
                                                     do_basic_tokenize=False)
 
-        model_trans = model_trans_alias.from_pretrained(model_name)
+        model_trans = model_trans_alias.from_pretrained(model_name,
+                                                        config=config)
 
     dataset = Dataset(args.data_root,
                       args.setup_opt,
@@ -841,8 +736,13 @@ def run(out_dir, metrics_path, args):
                         device=device,
                         use_multi_head_in=args.multi_head_in,
                         use_multi_head_out=args.multi_head_out,
+                        adapter_layers=args.adapter_layers,
                         use_slots=args.use_slots,
                         num_slots=eff_num_slot)
+
+    for k, v in model.named_parameters():
+        if "adapter" in k:
+            print(k, v.shape)
 
     if torch.cuda.device_count() > 1:
         print("torch.cuda.device_count():", torch.cuda.device_count())
@@ -870,7 +770,11 @@ def run(out_dir, metrics_path, args):
         with open(os.path.join(metrics_path, "initial_metrics.pickle"), "wb") as output_file:
             pickle.dump(metrics, output_file)
 
-    optimizer, scheduler = set_optimizer(model, args)
+    optimizer, scheduler = set_optimizer(model)
+
+    grad_dims = []
+    for p in model.parameters():
+        grad_dims.append(p.data.numel())
 
     if args.setup_opt == "cil":
         """ 
@@ -1125,21 +1029,24 @@ def run(out_dir, metrics_path, args):
 
         if args.multi_head_in:
             if args.emb_enc_lang_spec == ["all"]:
-                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
-                    .named_parameters()} for _ in dataset.train_stream]
+                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
+                                                                                                model_name)).
+                               named_parameters()} for _ in dataset.train_stream]
             else:
-                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
-                    .named_parameters() if name_in_list(args.emb_enc_lang_spec, k)} for _ in dataset.train_stream]
+                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
+                                                                                                model_name)).
+                               named_parameters() if name_in_list(args.emb_enc_lang_spec, k)}
+                               for _ in dataset.train_stream]
 
         else:
             prior_mbert = [None for _ in dataset.train_stream]
 
         if args.multi_head_out:
-            prior_intents = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, num_intents)
-                .named_parameters()} for _ in dataset.train_stream]
+            prior_intents = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, num_intents).
+                             named_parameters()} for _ in dataset.train_stream]
 
-            prior_slots = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, eff_num_slot)
-                .named_parameters()} for _ in dataset.train_stream]
+            prior_slots = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, eff_num_slot).
+                           named_parameters()} for _ in dataset.train_stream]
 
             #prior_crf = [CRFLayer(eff_num_slot, device) for _ in dataset.train_stream]
         else:
@@ -1147,14 +1054,45 @@ def run(out_dir, metrics_path, args):
             prior_slots = [None for _ in dataset.train_stream]
             #prior_crf = [None for _ in dataset.train_stream]
 
+        if args.use_adapters:
+            prior_adapter_norm_before = [{k: v for k, v in nn.LayerNorm(768).named_parameters()}
+                                         for _ in dataset.train_stream]
+
+            prior_adapter_down_1 = [{k: v for k, v in nn.Linear(768, 768//2).named_parameters()}
+                                    for _ in dataset.train_stream]
+
+            prior_adapter_up = [{k: v for k, v in nn.Linear(768//2, 768).named_parameters()}
+                                for _ in dataset.train_stream]
+        else:
+            prior_adapter_norm_before = [None for _ in dataset.train_stream]
+            prior_adapter_down_1 = [None for _ in dataset.train_stream]
+            prior_adapter_up = [None for _ in dataset.train_stream]
+
         # Used for comparison only and to reinitialize trans_model but without using it as a reference
         original_mbert = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
         original_intent = copy.deepcopy(model.intent_classifier)
         original_slot = copy.deepcopy(model.slot_classifier)
-        #original_crf = copy.deepcopy(model.crf_layer)
+        original_ada_norm_before = copy.deepcopy(model.adapter.adapter_norm_before)
+        original_ada_down_1 = copy.deepcopy(model.adapter.adapter_down[1])
+        original_ada_up = copy.deepcopy(model.adapter.adapter_up)
 
         mean_all_stream = []
         sum_all_stream = []
+
+        if args.cont_learn_alg == "ewc":
+            cont_learn_alg = EWC(device,
+                                 checkpoint_dir,
+                                 args.use_online,
+                                 args.gamma_ewc)
+
+        elif args.cont_learn_alg == "gem":
+            cont_learn_alg = GEM(dataset,
+                                 args.use_slots,
+                                 args.use_a_gem,
+                                 args.a_gem_n,
+                                 checkpoint_dir)
+        else:
+            cont_learn_alg = None
 
         for train_idx, subtask in enumerate(dataset.train_stream):
             dev_perf_best = 0.0
@@ -1184,7 +1122,7 @@ def run(out_dir, metrics_path, args):
             subtask_size[train_idx] = subtask["size"]
 
             """ 1. Reinitialize linear layers for each new language """
-            if args.multi_head_in or args.multi_head_out:
+            if args.multi_head_in or args.multi_head_out or args.use_adapters:
                 model_dict = model.state_dict()
 
             if args.multi_head_in:
@@ -1206,7 +1144,19 @@ def run(out_dir, metrics_path, args):
                 # crf_dict = {k: v for k, v in original_crf.named_parameters()}
                 # model_dict.update(crf_dict)
 
-            if args.multi_head_in or args.multi_head_out:
+            if args.use_adapters:
+                adapter_norm_before_dict = {"adapter.adapter_norm_before."+k: v for k, v in
+                                            original_ada_norm_before.named_parameters()}
+                model_dict.update(adapter_norm_before_dict)
+
+                adapter_down_1_dict = {"adapter.adapter_down.1."+k: v for k, v in
+                                       original_ada_down_1.named_parameters()}
+                model_dict.update(adapter_down_1_dict)
+
+                adapter_up_dict = {"adapter.adapter_up."+k: v for k, v in original_ada_up.named_parameters()}
+                model_dict.update(adapter_up_dict)
+
+            if args.multi_head_in or args.multi_head_out or args.use_adapters:
                 model.load_state_dict(model_dict)
 
             for epoch in tqdm(range(args.epochs)):
@@ -1215,7 +1165,8 @@ def run(out_dir, metrics_path, args):
                 for step_iter in range(num_iter):
                     train_outputs = train(optimizer,
                                           model,
-                                          checkpoint_dir,
+                                          grad_dims,
+                                          cont_learn_alg,
                                           dataset,
                                           stream,
                                           subtask_size,
@@ -1223,7 +1174,7 @@ def run(out_dir, metrics_path, args):
                                           epoch,
                                           train_idx,
                                           step_iter,
-                                          old_dataset=dataset.train_stream, # all dataset to get old stream
+                                          checkpoint_dir,
                                           sample_sizes=sample_sizes)
 
                     if args.use_slots:
@@ -1234,7 +1185,7 @@ def run(out_dir, metrics_path, args):
                                                                                                slot_loss.mean()))
                     else:
                         intent_loss, params, saved_grads = train_outputs
-                        if j % args.eval_steps == 0:
+                        if step_iter % args.eval_steps == 0:
                             print('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
                                                                            intent_loss.mean()))
 
@@ -1290,7 +1241,10 @@ def run(out_dir, metrics_path, args):
                                                                 verbose=args.verbose,
                                                                 prior_mbert=prior_mbert[test_idx],
                                                                 prior_intents=prior_intents[test_idx],
-                                                                prior_slots=prior_slots[test_idx])
+                                                                prior_slots=prior_slots[test_idx],
+                                                                prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
+                                                                prior_adapter_down_1=prior_adapter_down_1[test_idx],
+                                                                prior_adapter_up=prior_adapter_up[test_idx])
 
                     with open(os.path.join(metrics_path,
                                            "epoch_"+str(epoch)+"_metrics_"+str(train_idx)+".pickle"), "wb") \
@@ -1302,6 +1256,9 @@ def run(out_dir, metrics_path, args):
             mbert_task = copy.deepcopy(model.trans_model)
             intents_task = copy.deepcopy(model.intent_classifier)
             slots_task = copy.deepcopy(model.slot_classifier)
+            adapter_norm_before = copy.deepcopy(model.adapter.adapter_norm_before)
+            adapter_down_1 = copy.deepcopy(model.adapter.adapter_down[1])
+            adapter_up = copy.deepcopy(model.adapter.adapter_up)
 
             if args.multi_head_in:
                 prior_mbert[train_idx] = {k: v for k, v in mbert_task.named_parameters()
@@ -1310,6 +1267,11 @@ def run(out_dir, metrics_path, args):
             if args.multi_head_out:
                 prior_intents[train_idx] = {k: v for k, v in intents_task.named_parameters()}
                 prior_slots[train_idx] = {k: v for k, v in slots_task.named_parameters()}
+
+            if args.use_adapters:
+                prior_adapter_norm_before[train_idx] = {k: v for k, v in adapter_norm_before.named_parameters()}
+                prior_adapter_down_1[train_idx] = {k: v for k, v in adapter_down_1.named_parameters()}
+                prior_adapter_up[train_idx] = {k: v for k, v in adapter_up.named_parameters()}
 
             if args.save_change_params:
                 print("After training on language: ", train_idx)
@@ -1346,11 +1308,14 @@ def run(out_dir, metrics_path, args):
                                                         writer,
                                                         name="test",
                                                         out_path=os.path.join(out_dir, "End_test_perf-train_"+train_lang
-                                                                               + "-test_" + test_lang),
+                                                                              + "-test_" + test_lang),
                                                         verbose=args.verbose,
                                                         prior_mbert=prior_mbert[test_idx],
                                                         prior_intents=prior_intents[test_idx],
-                                                        prior_slots=prior_slots[test_idx])
+                                                        prior_slots=prior_slots[test_idx],
+                                                        prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
+                                                        prior_adapter_down_1=prior_adapter_down_1[test_idx],
+                                                        prior_adapter_up=prior_adapter_up[test_idx])
 
             with open(os.path.join(metrics_path, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
                 pickle.dump(metrics, output_file)
@@ -1541,7 +1506,7 @@ def run(out_dir, metrics_path, args):
             pickle.dump(metrics, output_file)
 
 
-def set_seed(args):
+def set_seed():
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -1649,24 +1614,27 @@ if __name__ == "__main__":
                                                     "language independently.",
                         nargs="+", default=["embeddings"],
                         choices=["embeddings",
-                                 "encoder.layer.0",
-                                 "encoder.layer.1",
-                                 "encoder.layer.2",
-                                 "encoder.layer.3",
-                                 "encoder.layer.4",
-                                 "encoder.layer.5",
-                                 "encoder.layer.6",
-                                 "encoder.layer.7",
-                                 "encoder.layer.8",
-                                 "encoder.layer.9",
-                                 "encoder.layer.10",
-                                 "encoder.layer.11",
+                                 "encoder.layer.0.",
+                                 "encoder.layer.1.",
+                                 "encoder.layer.2.",
+                                 "encoder.layer.3.",
+                                 "encoder.layer.4.",
+                                 "encoder.layer.5.",
+                                 "encoder.layer.6.",
+                                 "encoder.layer.7.",
+                                 "encoder.layer.8.",
+                                 "encoder.layer.9.",
+                                 "encoder.layer.10.",
+                                 "encoder.layer.11.",
                                  "pooler",
                                  "all"])
 
     parser.add_argument("--multi_head_out", help="Whether to use multiple heads in the outputs that would"
                                                  "imply the use of different linear layers",
                         action='store_true')
+
+    parser.add_argument("--adapter_layers", help="List of layers to which adapters are applied",
+                        nargs="+", default=[0, 1, 2, 3, 4, 5])
 
     parser.add_argument('--data_format', help='Whether it is tsv (MTOD), json, or txt (MTOP)',
                         type=str, default="txt")
@@ -1729,8 +1697,25 @@ if __name__ == "__main__":
     parser.add_argument("--ewc_lambda", help="lambda for regularization in ewc",
                         type=int, default=20)
 
+    parser.add_argument("--use_a_gem", help="whether to use averaged gem",
+                        action='store_true')
+
+    parser.add_argument("--a_gem_n", help="whether to use averaged gem",
+                        type=int, default=100)
+
+    parser.add_argument("--save_model", help="whether to save the model after training",
+                        action="store_true")
+
+    parser.add_argument("--use_adapters", help="whether to use adapters",
+                        action="store_true")
+
     args = parser.parse_args()
     set_seed()
+
+    if args.use_adapters:
+        from downstreammodels.transNLUCRFAdapters import TransNLUCRF
+    else:
+        from downstreammodels.transNLUCRF import TransNLUCRF
 
     out_dir, metrics_path = set_out_dir()
 
