@@ -425,7 +425,7 @@ class Dataset:
     def __init__(self,
                  data_path,
                  setup_option,
-                 setup_3,
+                 setup_cillia,
                  tokenizer,
                  data_format,
                  use_slots,
@@ -453,7 +453,7 @@ class Dataset:
         self.order_lang_lst = order_lang_lst
         self.languages = languages
         self.setup_option = setup_option
-        self.setup_3 = setup_3
+        self.setup_cillia = setup_cillia
 
         random.seed(self.seed)
 
@@ -485,6 +485,8 @@ class Dataset:
                 ordered_test, _ = self.partition_per_intent(self.test_set[lang],
                                                             keys=ordered_intents) # using the same intent types order as the train
 
+                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.intent_types), num_intent_tasks)}
+
                 for i in range(0, len(self.intent_types), num_intent_tasks):
                     int_task_train = []
                     int_task_dev = []
@@ -496,18 +498,21 @@ class Dataset:
                         int_task_test.extend(ordered_test[intent])
 
                     self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                    "stream": AugmentedList(int_task_train,
-                                                                            shuffle_between_epoch=True),
-                                                    "size": len(int_task_train)})
+                                                    "examples": AugmentedList(int_task_train,
+                                                                              shuffle_between_epoch=True),
+                                                    "size": len(int_task_train),
+                                                    "lang": lang})
 
                     self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                  "stream": AugmentedList(int_task_dev,
-                                                                          shuffle_between_epoch=True),
-                                                  "size": len(int_task_dev)})
+                                                  "examples": AugmentedList(int_task_dev,
+                                                                            shuffle_between_epoch=True),
+                                                  "size": len(int_task_dev),
+                                                  "lang": lang})
 
-                    self.test_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                   "stream": AugmentedList(int_task_test),
-                                                   "size": len(int_task_test)})
+                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_intent_tasks],
+                                                                 "lang": lang,
+                                                                 "examples": AugmentedList(int_task_test),
+                                                                 "size": len(int_task_test)}
 
         elif self.setup_option == "cil-other":
             """
@@ -560,6 +565,7 @@ class Dataset:
                 int_incremental_task_test = []
 
                 covered_intents = []
+                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.intent_types), num_intent_tasks)}
                 for i in range(0, len(self.intent_types), num_intent_tasks):
                     int_other_task_train = []
                     int_other_task_dev = []
@@ -576,20 +582,23 @@ class Dataset:
                             int_other_task_dev.extend(self.set_intent_to_other(ordered_train[intent]))
 
                     self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                    "stream": AugmentedList(int_incremental_task_train
-                                                                            + int_other_task_train,
-                                                                            shuffle_between_epoch=True),
-                                                    "size": len(int_incremental_task_train)})
+                                                    "examples": AugmentedList(int_incremental_task_train
+                                                                              + int_other_task_train,
+                                                                              shuffle_between_epoch=True),
+                                                    "size": len(int_incremental_task_train),
+                                                    "lang": lang})
 
                     self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                  "stream": AugmentedList(int_incremental_task_dev
-                                                                          + int_other_task_dev,
-                                                                          shuffle_between_epoch=True),
-                                                  "size": len(int_incremental_task_dev)})
+                                                  "examples": AugmentedList(int_incremental_task_dev
+                                                                            + int_other_task_dev,
+                                                                            shuffle_between_epoch=True),
+                                                  "size": len(int_incremental_task_dev),
+                                                  "lang": lang})
 
-                    self.test_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                   "stream": AugmentedList(int_incremental_task_test),
-                                                   "size": len(int_incremental_task_test)})
+                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_intent_tasks],
+                                                                 "lang": lang,
+                                                                 "examples": AugmentedList(int_incremental_task_test),
+                                                                 "size": len(int_incremental_task_test)}
 
         elif self.setup_option == "cll":
             """
@@ -601,19 +610,19 @@ class Dataset:
             ordered_langs = self.partition_per_lang(self.train_set)
 
             self.train_stream = [{"lang": lang,
-                                  "stream": AugmentedList(self.train_set[lang],
-                                                          shuffle_between_epoch=True),
+                                  "examples": AugmentedList(self.train_set[lang],
+                                                            shuffle_between_epoch=True),
                                   "size": len(self.train_set[lang])}
                                  for lang in ordered_langs]
 
             self.dev_stream = [{"lang": lang,
-                                "stream": AugmentedList(self.dev_set[lang],
-                                                        shuffle_between_epoch=True),
+                                "examples": AugmentedList(self.dev_set[lang],
+                                                          shuffle_between_epoch=True),
                                 "size": len(self.dev_set[lang])}
                                for lang in ordered_langs]
 
             self.test_stream = {lang:
-                                    {"stream": AugmentedList(self.test_set[lang]),
+                                    {"examples": AugmentedList(self.test_set[lang]),
                                      "size": len(self.test_set[lang])}
                                 for lang in ordered_langs}
 
@@ -642,7 +651,7 @@ class Dataset:
                                                                   keys=ordered_intents[lang]) # using the same intent types order as train
 
             # CIL/LL Matrix consists of language rows and intent columns
-            if self.setup_3 == "intents": # Horizontally goes linearly over all intents of each languages batch before moving to the next languages batch
+            if self.setup_cillia == "intents": # Horizontally goes linearly over all intents of each languages batch before moving to the next languages batch
                 for j in range(0, len(ordered_langs), num_lang_tasks):
                     lang_batch = ordered_langs[j:j+num_lang_tasks]
                     for i in range(0, len(self.intent_types), num_intent_tasks):
@@ -661,19 +670,19 @@ class Dataset:
 
                         self.train_stream.append({"lang": lang_batch,
                                                   "intent": intent_batches,
-                                                  "stream": AugmentedList(int_lang_task_train,
-                                                                          shuffle_between_epoch=True),
+                                                  "examples": AugmentedList(int_lang_task_train,
+                                                                            shuffle_between_epoch=True),
                                                   "size": len(int_lang_task_train)})
 
                         self.dev_stream.append({"lang": lang_batch,
                                                 "intent": intent_batches,
-                                                "stream": AugmentedList(int_lang_task_dev,
-                                                                        shuffle_between_epoch=True),
+                                                "examples": AugmentedList(int_lang_task_dev,
+                                                                          shuffle_between_epoch=True),
                                                 "size": len(int_lang_task_dev)})
 
                         self.test_stream.append({lang: {
                                                   "intent": intent_batches,
-                                                  "stream": AugmentedList(int_lang_task_test[lang]),
+                                                  "examples": AugmentedList(int_lang_task_test[lang]),
                                                   "size": len(int_lang_task_test[lang])}
                                                  for lang in int_lang_task_test})
 
@@ -695,44 +704,81 @@ class Dataset:
 
                         self.train_stream.append({"lang": lang_batch,
                                                   "intent": intent_batches,
-                                                  "stream": AugmentedList(int_lang_task_train,
-                                                                          shuffle_between_epoch=True),
+                                                  "examples": AugmentedList(int_lang_task_train,
+                                                                            shuffle_between_epoch=True),
                                                   "size": len(int_lang_task_train)})
 
                         self.dev_stream.append({"lang": lang_batch,
                                                 "intent": intent_batches,
-                                                "stream": AugmentedList(int_lang_task_dev,
-                                                                        shuffle_between_epoch=True),
+                                                "examples": AugmentedList(int_lang_task_dev,
+                                                                          shuffle_between_epoch=True),
                                                 "size": len(int_lang_task_dev)})
 
                         self.test_stream.append({lang: {
                                                   "intent": intent_batches,
-                                                  "stream": AugmentedList(int_lang_task_test[lang]),
+                                                  "examples": AugmentedList(int_lang_task_test[lang]),
                                                   "size": len(int_lang_task_test[lang])}
                                                  for lang in int_lang_task_test})
 
-        elif self.setup_option == "multi":
+        elif self.setup_option == "multi-incr-cil":
             """
-            Setup 5: Multi-task/Joint Learning: train on all languages and intent classes at the same time 
+            Setup 5: A weaker version of Multi-task/Joint Learning where we gradually fine-tune on the incremental
+            of multi-task at each class subtask independently (when testing on subtask list L, we incrementally 
+            train up to that language) 
             """
-            train_set_all = []
-            for lang in self.train_set:
-                train_set_all += self.train_set[lang]
-            self.train_stream = {"stream": AugmentedList(train_set_all,
-                                                         shuffle_between_epoch=True),
-                                 "size": len(train_set_all)}
 
-            dev_set_all = [self.dev_set[lang] for lang in self.languages]
-            self.dev_stream = {"stream": AugmentedList(dev_set_all,
-                                                       shuffle_between_epoch=True),
-                               "size": len(dev_set_all)}
+            self.train_stream = {lang: [] for lang in languages}
+            self.dev_stream = {lang: [] for lang in languages}
+            self.test_stream = {lang: {} for lang in languages}
 
-            self.test_stream = {}
             for lang in self.languages:
-                self.test_stream.update({lang: {"stream": AugmentedList(self.test_set[lang]),
-                                                "size": len(self.test_set[lang])}})
+                ordered_train, ordered_intents = self.partition_per_intent(self.train_set[lang])
 
-        elif self.setup_option == "multi-incremental-lang":
+                ordered_test, _ = self.partition_per_intent(self.test_set[lang],
+                                                            keys=ordered_intents) # using the same intent types order as the train
+
+                ## Train
+                inc_intents_set = []
+                for i in range(num_intent_tasks, len(self.intent_types), num_intent_tasks):
+                    inc_intents_set.append(ordered_intents[0:i])
+                #
+                inc_train_set = {"-".join(intents_l): [] for intents_l in inc_intents_set}
+                for joined_intents_l in inc_train_set.keys():
+                    for intents_l in joined_intents_l.split("-"):
+                        inc_train_set[joined_intents_l].extend(self.train_set[intents_l])
+
+                self.train_stream[lang] = [{"intent_list": joined_intents_l,
+                                            "lang": lang,
+                                            "examples": AugmentedList(inc_train_set[joined_intents_l],
+                                                                      shuffle_between_epoch=True),
+                                            "size": len(inc_train_set[joined_intents_l])}
+                                           for joined_intents_l in inc_train_set]
+
+                ## Dev
+                inc_dev_set = {"-".join(intents_l): [] for intents_l in intents_l}
+                for joined_intents_l in inc_dev_set.keys():
+                    for intents_l in joined_intents_l.split("-"):
+                        inc_dev_set[joined_intents_l].extend(self.dev_set[intents_l])
+
+                self.dev_stream[lang] = [{"intent_list": joined_intents_l,
+                                          "lang": lang,
+                                          "examples": AugmentedList(inc_dev_set[joined_intents_l]),
+                                          "size": len(inc_dev_set[joined_intents_l])}
+                                         for joined_intents_l in inc_dev_set]
+
+                ## Test
+                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.intent_types), num_intent_tasks)}
+                for i in range(0, len(self.intent_types), num_intent_tasks):
+                    int_task_test = []
+                    for intent in ordered_intents[i:i+num_intent_tasks]:
+                        int_task_test.extend(ordered_test[intent])
+
+                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_intent_tasks],
+                                                                 "lang": lang,
+                                                                 "examples": AugmentedList(int_task_test),
+                                                                 "size": len(self.test_set[lang])}
+
+        elif self.setup_option == "multi-incr-cll":
             """
             Setup 6: A weaker version of Multi-task/Joint Learning where we gradually fine-tune on the incremental
             of multi-task at each language independently (when testing on language L we incrementally train up to that 
@@ -751,8 +797,8 @@ class Dataset:
                     inc_train_set[lang_l].extend(self.train_set[lang])
 
             self.train_stream = [{"lang": lang_l,
-                                  "stream": AugmentedList(inc_train_set[lang_l],
-                                                          shuffle_between_epoch=True),
+                                  "examples": AugmentedList(inc_train_set[lang_l],
+                                                            shuffle_between_epoch=True),
                                   "size": len(inc_train_set[lang_l])}
                                  for lang_l in inc_train_set]
 
@@ -763,14 +809,35 @@ class Dataset:
                     inc_dev_set[lang_l].extend(self.dev_set[lang])
 
             self.dev_stream = [{"lang": lang_l,
-                                "stream": AugmentedList(inc_dev_set[lang_l]),
+                                "examples": AugmentedList(inc_dev_set[lang_l]),
                                 "size": len(inc_dev_set[lang_l])}
                                for lang_l in inc_dev_set]
 
             ## Test
             self.test_stream = {}
             for lang in self.languages:
-                self.test_stream.update({lang: {"stream": AugmentedList(self.test_set[lang]),
+                self.test_stream.update({lang: {"examples": AugmentedList(self.test_set[lang]),
+                                                "size": len(self.test_set[lang])}})
+
+        elif self.setup_option == "multi":
+            """
+            Setup 5: Multi-task/Joint Learning: train on all languages and intent classes at the same time 
+            """
+            train_set_all = []
+            for lang in self.train_set:
+                train_set_all += self.train_set[lang]
+            self.train_stream = {"examples": AugmentedList(train_set_all,
+                                                           shuffle_between_epoch=True),
+                                 "size": len(train_set_all)}
+
+            dev_set_all = [self.dev_set[lang] for lang in self.languages]
+            self.dev_stream = {"examples": AugmentedList(dev_set_all,
+                                                         shuffle_between_epoch=True),
+                               "size": len(dev_set_all)}
+
+            self.test_stream = {}
+            for lang in self.languages:
+                self.test_stream.update({lang: {"examples": AugmentedList(self.test_set[lang]),
                                                 "size": len(self.test_set[lang])}})
 
     def read_split(self, lang, split):
