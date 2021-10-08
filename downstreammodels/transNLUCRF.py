@@ -1,8 +1,8 @@
 import torch.nn as nn
 import torch
 from downstreammodels.crf import CRFLayer
-import os
 from transformers_config import MODELS_dict
+import os
 
 SLOT_PAD = 0
 
@@ -49,14 +49,14 @@ class TransNLUCRF(nn.Module):
 
         self.config = trans_model.config
 
-        model_name, tokenizer_alias, model_trans_alias = MODELS_dict[args.trans_model]
-
-        self.trans_model = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
-
         self.num_intents = num_intents
         self.eff_num_intents_task = eff_num_intents_task
 
         self.device = device
+
+        model_name, tokenizer_alias, model_trans_alias, _ = MODELS_dict[args.trans_model]
+
+        self.trans_model = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
 
         self.use_slots = use_slots
         self.num_slots = num_slots
@@ -139,7 +139,7 @@ class TransNLUCRF(nn.Module):
             inputs: output of SlotPredictor (bsz, seq_len, num_slot)
             lengths: lengths of x (bsz, )
         Ouput:
-            crf_loss: loss of crf
+            crf_decode: the predictions
         """
 
         prediction = self.crf_layer(inputs)
