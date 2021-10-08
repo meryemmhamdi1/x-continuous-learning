@@ -18,24 +18,20 @@ import torch
 from torch import nn
 from torch.autograd import Variable
 import torch.utils.data
-from contlearnalg.GEM import overwrite_grad, project2cone2
-from downstreammodels.crf import CRFLayer
-import nvidia_smi
 import copy
 from contlearnalg.EWC_grads import EWC
 from contlearnalg.GEM import GEM
 from utils import format_store_grads
 
+
 gpus_list = list(range(torch.cuda.device_count()))
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def variable(t: torch.Tensor, use_cuda=True, **kwargs):
     if torch.cuda.is_available() and use_cuda:
         t = t.cuda()
     return Variable(t, **kwargs)
-
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def compute_change(mbert1, mbert2,
@@ -131,8 +127,8 @@ def train(optimizer,
           grad_dims,
           cont_learn_alg,
           dataset,
-          subtask,
-          subtask_size,
+          train_examples,
+          train_examples_size,
           writer,
           epoch,
           i_task,
@@ -142,17 +138,18 @@ def train(optimizer,
 
     optimizer.zero_grad()
     model.train()
+
     # Take batch by batch and move to cuda
-    batch, _ = dataset.next_batch(args.batch_size, subtask)
+    batch, _ = dataset.next_batch(args.batch_size, train_examples)
 
     input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
         input_texts = batch
 
     input_ids = input_ids.cuda()
     lengths = lengths.cuda()
-    token_type_ids = token_type_ids.cuda()
+    token_type_ids = token_type_ids.cuda() # TODO check how this is done
     input_masks = input_masks.cuda()
-    attention_mask = attention_mask.cuda()
+    attention_mask = attention_mask.cuda() # TODO make this to good usage
     intent_labels = intent_labels.cuda()
     slot_labels = slot_labels.cuda()
 
@@ -190,7 +187,7 @@ def train(optimizer,
 
         for n, p in model.named_parameters():
             if p.grad is not None and p.requires_grad:
-                saved_grads[n].data += p.grad.data ** 2 / subtask_size[i_task]
+                saved_grads[n].data += p.grad.data ** 2 / train_examples_size[i_task]
                 # saved_grads[n].data += p.grad.data.cpu() ** 2 / subtask_size[i_task]
 
         saved_grads = {n: p for n, p in saved_grads.items()}
@@ -222,8 +219,8 @@ def train(optimizer,
 
     if args.use_slots:
         return intent_loss, slot_loss, params, saved_grads
-    else:
-        return intent_loss, params, saved_grads
+
+    return intent_loss, params, saved_grads
 
 
 def nlu_evaluation(dataset,
@@ -375,7 +372,7 @@ def nlu_evaluation(dataset,
                           " True Slots: ", " ".join(slots_true[i]), " Slot Prediction:", " ".join(slots_pred[i]))
 
                 text = sents_text[i][0] + "\t" + intent_types[intents_true[i]] + "\t" + intent_types[intents_pred[i]] \
-                       + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
+                         + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
                 writer.write(text+"\n")
 
     if verbose:
@@ -400,9 +397,9 @@ def nlu_evaluation(dataset,
 def evaluate_report(dataset,
                     data_stream,
                     model,
-                    train_lang,
+                    train_task,  # lang or subtask
                     train_idx,
-                    test_lang,
+                    test_task,  # lang or subtask
                     test_idx,
                     num_steps,
                     writer,
@@ -417,7 +414,7 @@ def evaluate_report(dataset,
                     prior_adapter_up=None):
 
     outputs = nlu_evaluation(dataset,
-                             data_stream["stream"],
+                             data_stream["examples"],
                              data_stream["size"],
                              model,
                              args.use_slots,
@@ -431,9 +428,9 @@ def evaluate_report(dataset,
                              prior_adapter_down_1=prior_adapter_down_1,
                              prior_adapter_up=prior_adapter_up)
 
-    output_text_format = "----size=%d, test_index=%d, and lang=%s" % (data_stream["size"],
+    output_text_format = "----size=%d, test_index=%d, and task=%s" % (data_stream["size"],
                                                                       test_idx,
-                                                                      test_lang)
+                                                                      test_task)
 
     metrics = {}
     if not args.use_slots:
@@ -449,14 +446,14 @@ def evaluate_report(dataset,
 
         avg_perf = (intent_acc + slot_f1) / 2
 
-        metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_slot_prec_'+test_lang+'_'+str(test_idx): slot_prec})
-        metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_slot_rec_'+test_lang+'_'+str(test_idx): slot_rec})
-        metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_slot_f1_'+test_lang+'_'+str(test_idx): slot_f1})
+        metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_slot_prec_'+test_task+'_'+str(test_idx): slot_prec})
+        metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_slot_rec_'+test_task+'_'+str(test_idx): slot_rec})
+        metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_slot_f1_'+test_task+'_'+str(test_idx): slot_f1})
 
-    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_acc_'+test_lang+'_'+str(test_idx): intent_acc})
-    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_prec_'+test_lang+'_'+str(test_idx): intent_prec})
-    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_rec_'+test_lang+'_'+str(test_idx): intent_rec})
-    metrics.update({train_lang+'_'+str(train_idx)+'_'+name+'_intent_f1_'+test_lang+'_'+str(test_idx): intent_f1})
+    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_acc_'+test_task+'_'+str(test_idx): intent_acc})
+    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_prec_'+test_task+'_'+str(test_idx): intent_prec})
+    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_rec_'+test_task+'_'+str(test_idx): intent_rec})
+    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_f1_'+test_task+'_'+str(test_idx): intent_f1})
 
     output_text_format += " INTENTS perf: (acc: %f, prec: %f, rec: %f, f1: %f)" % (round(intent_acc*100, 1),
                                                                                    round(intent_prec*100, 1),
@@ -628,6 +625,169 @@ def name_in_list(list, name):
     return flag
 
 
+def train_task_epochs(model,
+                      optimizer,
+                      grad_dims,
+                      cont_learn_alg,
+                      dataset,
+                      train_examples,
+                      dev_stream,
+                      test_stream,
+                      subtask_size,
+                      sample_sizes,
+                      num_iter,
+                      train_idx, ## to be used for both the training language and subtask if cll this doesn't matter, if cil this helps
+                      train_lang,
+                      num_steps,
+                      writer, # saving options
+                      checkpoint_dir,
+                      args_save_file,
+                      model_save_file,
+                      optim_save_file,
+                      prior_mbert, # prior options
+                      prior_intents,
+                      prior_slots,
+                      prior_adapter_norm_before,
+                      prior_adapter_down_1,
+                      prior_adapter_up):
+
+    dev_perf_best = 0.0
+    best_model = None
+    for epoch in tqdm(range(args.epochs)):
+        gc.collect()
+        num_steps += 1
+        for step_iter in range(num_iter):
+            train_outputs = train(optimizer,
+                                  model,
+                                  grad_dims,
+                                  cont_learn_alg,
+                                  dataset,
+                                  train_examples,
+                                  subtask_size,
+                                  writer,
+                                  epoch,
+                                  train_idx,
+                                  step_iter,
+                                  checkpoint_dir,
+                                  sample_sizes=sample_sizes)
+
+            if args.use_slots:
+                intent_loss, slot_loss, params, saved_grads, optimizer, model = train_outputs
+                if step_iter % args.test_steps == 0:
+                    print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
+                                                                                       intent_loss.mean(),
+                                                                                       slot_loss.mean()))
+            else:
+                intent_loss, params, saved_grads, optimizer, model = train_outputs
+                if step_iter % args.test_steps == 0:
+                    print('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
+                                                                   intent_loss.mean()))
+
+        print(">>>>>>> Dev Performance >>>>>")
+        dev_out_path = None
+        if args.save_dev_pred:
+            dev_out_path = os.path.join(out_dir,
+                                        "Dev_perf-Epoch_" + str(epoch) + "-train_" + train_idx)
+
+        _, dev_perf = evaluate_report(dataset,
+                                      dev_stream[train_idx],
+                                      model,
+                                      train_lang,
+                                      train_idx,
+                                      train_lang,
+                                      train_idx,
+                                      num_steps,
+                                      writer,
+                                      name="dev",
+                                      out_path=dev_out_path)
+
+        if dev_perf > dev_perf_best:
+            dev_perf_best = dev_perf
+
+            if args.save_model:
+                torch.save(args, args_save_file)
+                torch.save(model.state_dict(), model_save_file)
+                torch.save(optimizer.state_dict(), optim_save_file)
+
+            best_model = model
+
+        if best_model is None:
+            best_model = model
+
+        if args.save_test_every_epoch:
+            metrics = {subtask_lang: {} for subtask_lang in test_stream}
+            for test_idx, test_subtask_lang in enumerate(test_stream):
+                metrics[test_subtask_lang], _ = evaluate_report(dataset,
+                                                                test_stream[test_idx],
+                                                                best_model,
+                                                                train_lang,
+                                                                train_idx,
+                                                                test_subtask_lang,
+                                                                test_idx,
+                                                                num_steps,
+                                                                writer,
+                                                                name="test",
+                                                                out_path=os.path.join(out_dir,
+                                                                                      "Test_perf-Epoch_" + str(epoch)
+                                                                                      + "-train_" + train_lang
+                                                                                      + "-test_" + test_subtask_lang),
+                                                                verbose=args.verbose,
+                                                                prior_mbert=prior_mbert[test_idx],
+                                                                prior_intents=prior_intents[test_idx],
+                                                                prior_slots=prior_slots[test_idx],
+                                                                prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
+                                                                prior_adapter_down_1=prior_adapter_down_1[test_idx],
+                                                                prior_adapter_up=prior_adapter_up[test_idx])
+
+            with open(os.path.join(metrics_path,
+                                   "epoch_"+str(epoch)+"_metrics_"+str(train_idx)+".pickle"), "wb") \
+                    as output_file:
+                pickle.dump(metrics, output_file)
+
+    return params, saved_grads, best_model, optimizer
+
+
+def test_at_end_training(best_model,
+                         dataset,
+                         test_stream,
+                         train_idx,
+                         train_lang,
+                         num_steps,
+                         writer,
+                         prior_mbert,
+                         prior_intents,
+                         prior_slots,
+                         prior_adapter_norm_before,
+                         prior_adapter_down_1,
+                         prior_adapter_up):
+
+    print("------------------------------------ TESTING At the end of the training")
+    metrics = {task: {} for task in test_stream} # could be either per subtask or language
+    for test_idx, test_subtask_lang in enumerate(test_stream):
+        metrics[test_subtask_lang], _ = evaluate_report(dataset,
+                                                        test_stream[test_idx],
+                                                        best_model,
+                                                        train_lang,
+                                                        train_idx,
+                                                        test_subtask_lang,
+                                                        test_idx,
+                                                        num_steps,
+                                                        writer,
+                                                        name="test",
+                                                        out_path=os.path.join(out_dir, "End_test_perf-train_"+train_lang
+                                                                              + "-test_" + test_subtask_lang),
+                                                        verbose=args.verbose,
+                                                        prior_mbert=prior_mbert[test_idx],
+                                                        prior_intents=prior_intents[test_idx],
+                                                        prior_slots=prior_slots[test_idx],
+                                                        prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
+                                                        prior_adapter_down_1=prior_adapter_down_1[test_idx],
+                                                        prior_adapter_up=prior_adapter_up[test_idx])
+
+    with open(os.path.join(metrics_path, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
+        pickle.dump(metrics, output_file)
+
+
 def run(out_dir, metrics_path, args):
     """
     The main of training over different streams and evaluating different approaches in terms of catastrophic forgetting
@@ -636,6 +796,8 @@ def run(out_dir, metrics_path, args):
     :return:
     """
     checkpoint_dir = os.path.join(out_dir, "checkpoint")
+    writer = SummaryWriter(os.path.join(out_dir, 'runs'))
+
     args_save_file = os.path.join(checkpoint_dir, "training_args.bin")
     model_save_file = os.path.join(checkpoint_dir, "pytorch_model.bin")
     optim_save_file = os.path.join(checkpoint_dir, "optimizer.pt")
@@ -643,34 +805,28 @@ def run(out_dir, metrics_path, args):
     if not os.path.isdir(checkpoint_dir):
         os.mkdir(checkpoint_dir)
 
-    writer = SummaryWriter(os.path.join(out_dir, 'runs'))
-
     model_name, tokenizer_alias, model_trans_alias, config_alias = MODELS_dict[args.trans_model]
 
-    if "mmhamdi" in args.data_root or "jonmay_231" in args.data_root:
-        config = config_alias.from_pretrained(os.path.join(args.model_root, model_name),
-                                              output_hidden_states=args.use_adapters)
+    model_from_disk_dir = os.path.join(args.model_root, model_name)
 
-        tokenizer = tokenizer_alias.from_pretrained(os.path.join(args.model_root, model_name),
-                                                    do_lower_case=True,
-                                                    do_basic_tokenize=False)
-
-        model_trans = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name),
-                                                        config=config)
+    if os.path.isdir(model_from_disk_dir):
+        model_load_alias = model_from_disk_dir
     else:
-        config = config_alias.from_pretrained(model_name,
-                                              output_hidden_states=args.use_adapters)
+        model_load_alias = model_name
 
-        tokenizer = tokenizer_alias.from_pretrained(model_name,
-                                                    do_lower_case=True,
-                                                    do_basic_tokenize=False)
+    config = config_alias.from_pretrained(model_load_alias,
+                                          output_hidden_states=args.use_adapters)
 
-        model_trans = model_trans_alias.from_pretrained(model_name,
-                                                        config=config)
+    tokenizer = tokenizer_alias.from_pretrained(model_load_alias,
+                                                do_lower_case=True,
+                                                do_basic_tokenize=False)
+
+    model_trans = model_trans_alias.from_pretrained(model_load_alias,
+                                                    config=config)
 
     dataset = Dataset(args.data_root,
                       args.setup_opt,
-                      args.setup_3,
+                      args.setup_cillia,
                       tokenizer,
                       args.data_format,
                       args.use_slots,
@@ -688,42 +844,30 @@ def run(out_dir, metrics_path, args):
     num_intents = len(dataset.intent_types)
     eff_num_slot = len(dataset.slot_types)
 
-    # # args.setup_opt => ['multi', 'multi-incremental-lang', 'cll', 'cil', 'cil-other', 'cil-ll']
-    # eff_num_intent = len(dataset.intent_types)
-    # eff_num_slot = len(dataset.slot_types)
-    #
-    # # Incrementally adding new intents as they are added to the setup
-    # if args.setup_opt in ["cil", "cil-ll"]:
-    #     eff_num_intent = len(dataset.intent_types) #args.num_intent_tasks
-    #     eff_num_slot = len(dataset.slot_types)  # to be changed later
-    #     num_tasks = range(0, len(dataset.intent_types), args.num_intent_tasks) # TODO to be changed later for cil-ll
-    #     # TODO to be checked for cil-other
-    # else:
-    #     if args.setup_opt == "multi":
-    #         num_tasks = 1
-    #     elif args.setup_opt in ["cll", "multi-incremental-lang"]:
-    #         if len(args.order_str) > 0:
-    #             num_tasks = len(args.order_str)
-    #         else:
-    #             num_tasks = len(args.languages)
+    if args.setup_opt in ["cll", "multi-incr-cll"]:
+        train_stream = dataset.train_stream
+        dev_stream = dataset.dev_stream
+        test_stream = dataset.test_stream
+    else:
+        train_stream = dataset.train_stream[args.cil_stream_lang]
+        dev_stream = dataset.dev_stream[args.cil_stream_lang]
+        test_stream = dataset.test_stream[args.cil_stream_lang]
 
     """ eff_num_intent/eff_num_slot """
     if args.setup_opt == "cil-other":
         eff_num_intent += 1
         num_intents += 1
 
-    """ num_tasks"""
-
     if args.setup_opt == "multi":
         num_tasks = 1
         eff_num_intents_task = eff_num_intent
-    elif args.setup_opt in ["multi-incremental-lang", "cll"]:
+    elif args.setup_opt in ["multi-incr", "cll"]:
         if len(args.order_str) > 0:
             num_tasks = len(args.order_str)
         else:
             num_tasks = len(args.languages)
         eff_num_intents_task = eff_num_intent
-    else: # args.setup_opt in ["cil", "cil-other", "cil-ll"]:
+    else:  # args.setup_opt in ["cil", "cil-other", "cil-ll"]:
         range_intents = range(0, len(dataset.intent_types), args.num_intent_tasks)
         num_tasks = len(list(range_intents))
         eff_num_intents_task = [args.num_intent_tasks[i:i+args.num_intent_tasks] for i in range_intents]
@@ -739,10 +883,6 @@ def run(out_dir, metrics_path, args):
                         adapter_layers=args.adapter_layers,
                         use_slots=args.use_slots,
                         num_slots=eff_num_slot)
-
-    for k, v in model.named_parameters():
-        if "adapter" in k:
-            print(k, v.shape)
 
     if torch.cuda.device_count() > 1:
         print("torch.cuda.device_count():", torch.cuda.device_count())
@@ -776,249 +916,60 @@ def run(out_dir, metrics_path, args):
     for p in model.parameters():
         grad_dims.append(p.data.numel())
 
-    if args.setup_opt == "cil":
-        """ 
-        Setup 1: Cross-CIL, Fixed LL: "Monolingual CIL":
-        - Trnt(ain over every task of classes continuously independently for every language. 
-        - We then average over all languages.
-        """
-        for lang in args.languages:
-            optimizer, scheduler = set_optimizer(model, args)
-            sample_sizes = []
-            # Iterating over the stream
-            params_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream[lang])}
-            grads_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream[lang])}
-            for i, subtask in enumerate(dataset.train_stream[lang]):
-                sample_sizes.append(int(subtask["size"]*args.old_task_prop))
-                num_steps = 0
-                num_iter = subtask["size"] // args.batch_size
-                stream = subtask["stream"]
-                if subtask["size"] == 0:
-                    print("Skipped task:", i, " in lang:", lang)
-                    continue
+    ## Continuous Learning Algorithms
+    if args.cont_learn_alg == "ewc":
+        cont_learn_alg = EWC(device,
+                             checkpoint_dir,
+                             args.use_online,
+                             args.gamma_ewc)
 
-                for epoch in tqdm(range(args.epochs)):
-                    gc.collect()
-                    num_steps += 1
+    elif args.cont_learn_alg == "gem":
+        cont_learn_alg = GEM(dataset,
+                             args.use_slots,
+                             args.use_a_gem,
+                             args.a_gem_n,
+                             checkpoint_dir)
+    else:
+        cont_learn_alg = None
 
-                    for j in range(num_iter):
-                        if args.use_slots:
-                            intent_loss, slot_loss = train(params_old_tasks,
-                                                           grads_old_tasks,
-                                                           args,
-                                                           optimizer,
-                                                           model,
-                                                           dataset,
-                                                           stream,
-                                                           subtask["size"],
-                                                           writer,
-                                                           epoch,
-                                                           i,
-                                                           j,
-                                                           old_dataset=dataset.train_stream[lang], # all dataset to get old stream
-                                                           sample_sizes=sample_sizes)
-                        else:
-                            intent_loss = train(params_old_tasks,
-                                                grads_old_tasks,
-                                                args,
-                                                optimizer,
-                                                model,
-                                                dataset,
-                                                stream,
-                                                subtask["size"],
-                                                writer,
-                                                epoch,
-                                                i,
-                                                j,
-                                                old_dataset=dataset.train_stream[lang], # all dataset to get old stream
-                                                sample_sizes=sample_sizes)
+    prior_mbert = [None for _ in dataset.train_stream]
+    prior_intents = [None for _ in dataset.train_stream]
+    prior_slots = [None for _ in dataset.train_stream]
+    prior_adapter_norm_before = [None for _ in dataset.train_stream]
+    prior_adapter_down_1 = [None for _ in dataset.train_stream]
+    prior_adapter_up = [None for _ in dataset.train_stream]
 
-                        if args.use_slots:
-                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                               intent_loss.mean(),
-                                                                                               slot_loss.mean()))
-                        else:
-                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
+    if args.multi_head_in:
+        if args.emb_enc_lang_spec == ["all"]:
+            prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
+                                                                                            model_name)).
+                named_parameters()} for _ in dataset.train_stream]
+        else:
+            prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
+                                                                                            model_name)).
+                named_parameters() if name_in_list(args.emb_enc_lang_spec, k)}
+                           for _ in dataset.train_stream]
 
-                params = {n: p for n, p in model.named_parameters() if p.requires_grad} # current task parameters to be saved
+    if args.multi_head_out:
+        # TODO change to accommodate different numbers of intents
+        prior_intents = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, num_intents).
+            named_parameters()} for _ in dataset.train_stream]
 
-                _means = {n: {} for n, p in model.named_parameters() if p.requires_grad}
+        prior_slots = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, eff_num_slot).
+            named_parameters()} for _ in dataset.train_stream]
 
-                for n, p in deepcopy(params).items():
-                    _means[n] = variable(p.data) # Previous task parameters
+    if args.use_adapters:
+        prior_adapter_norm_before = [{k: v for k, v in nn.LayerNorm(768).named_parameters()}
+                                     for _ in dataset.train_stream]
 
-                params_old_tasks[i] = _means
+        prior_adapter_down_1 = [{k: v for k, v in nn.Linear(768, 768//2).named_parameters()}
+                                for _ in dataset.train_stream]
 
-                grads_old_tasks[i] = {n: p.grad.data ** 2 /subtask["size"] for n, p in model.named_parameters() if p.requires_grad} # current task parameters to be saved
+        prior_adapter_up = [{k: v for k, v in nn.Linear(768//2, 768).named_parameters()}
+                            for _ in dataset.train_stream]
 
-                metrics = {k: {} for k in range(0, i+1)}
-
-                for k in range(0, i+1):
-                    if dataset.test_stream[lang][k]["size"] > 0:
-                        metrics[k] = evaluate_report(dataset,
-                                                     dataset.test_stream[lang][k],
-                                                     model,
-                                                     lang,
-                                                     i,
-                                                     lang,
-                                                     k,
-                                                     num_steps,
-                                                     writer,
-                                                     name="test",
-                                                     out_path=os.path.join(out_dir,
-                                                                           lang+"_test_perf-train_"+str(i)+"-test_"
-                                                                           + str(k)),
-                                                     verbose=args.verbose)
-                    else:
-                        print("Skipped task:", k, " in lang:", lang)
-
-                with open(os.path.join(metrics_path, "final_metrics_"+lang+"_trainsubtask_"+str(i)+".pickle"), "wb") as output_file:
-                    pickle.dump(metrics, output_file)
-
-            print("------------------------------------")
-            metrics = {k: {} for k in range(0, len(dataset.train_stream[lang]))}
-            for k in range(0, len(dataset.train_stream[lang])):
-                if dataset.test_stream[lang][k]["size"] > 0:
-                    metrics[k] = evaluate_report(dataset,
-                                                 dataset.test_stream[lang][k],
-                                                 model,
-                                                 lang,
-                                                 i,
-                                                 lang,
-                                                 k,
-                                                 num_steps,
-                                                 writer,
-                                                 name="test",
-                                                 out_path=os.path.join(out_dir,
-                                                                       lang+"End_perf-train_"+str(i)+"-test_"+str(k)),
-                                                 verbose=args.verbose)
-                else:
-                    print("Skipped task:", k, " in lang:", lang)
-
-            with open(os.path.join(metrics_path, "final_metrics_"+lang+".pickle"), "wb") as output_file:
-                pickle.dump(metrics, output_file)
-            print("/////////////////////////////////////////////")
-
-    elif args.setup_opt == "cil-other":
-        """ 
-        Setup 2: CIL with other option:  incremental version of cil where previous intents' subtasks are added 
-            in addition to other labels for subsequent intents' subtasks.
-        """
-
-        if torch.cuda.device_count() > 1:
-            model = nn.DataParallel(model)
-
-        model.cuda()
-
-        optimizer, scheduler = set_optimizer(model, args)
-
-        _lambda = 20
-        for l, lang in enumerate(args.languages):
-            sample_sizes = []
-            # Iterating over the stream
-            params_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream[lang])}
-            grads_old_tasks = {i: {} for i, subtask in enumerate(dataset.train_stream[lang])}
-            for i, subtask in enumerate(dataset.train_stream[lang]):
-                sample_sizes.append(subtask["size"] // 10)
-                num_steps = 0
-                num_iter = subtask["size"] // args.batch_size
-                stream = subtask["stream"]
-                if subtask["size"] == 0:
-                    print("Skipped task:", i, " in lang:", lang)
-                    continue
-
-                for epoch in tqdm(range(args.epochs)):
-                    gc.collect()
-                    num_steps += 1
-
-                    for j in range(num_iter):
-                        if args.use_slots:
-                            intent_loss, slot_loss = train(args,
-                                                           optimizer,
-                                                           model,
-                                                           dataset,
-                                                           stream,
-                                                           writer,
-                                                           epoch,
-                                                           i,
-                                                           j,
-                                                           old_dataset=dataset.train_stream[lang], # all dataset to get old stream
-                                                           sample_sizes=sample_sizes,
-                                                           _lambda=_lambda)
-                        else:
-                            intent_loss = train(args,
-                                                optimizer,
-                                                model,
-                                                dataset,
-                                                stream,
-                                                writer,
-                                                epoch,
-                                                i,
-                                                j,
-                                                old_dataset=dataset.train_stream[lang], # all dataset to get old stream
-                                                sample_sizes=sample_sizes,
-                                                _lambda=_lambda)
-
-                        if args.use_slots:
-                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                               intent_loss.mean(),
-                                                                                               slot_loss.mean()))
-                        else:
-                            print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
-                metrics = {k: {} for k in range(0, i+1)}
-                for k in range(0, i+1):
-                    if dataset.test_stream[lang][k]["size"] > 0:
-                        metrics[k] = evaluate_report(dataset.test_stream[lang][k],
-                                                     k,
-                                                     lang,
-                                                     lang,
-                                                     args,
-                                                     dataset,
-                                                     model,
-                                                     writer,
-                                                     i,
-                                                     num_steps,
-                                                     out_path=os.path.join(out_dir,
-                                                                           lang+"Test_perf-train_"+str(i)+"-test_"+str(k)),
-                                                     verbose=args.verbose)
-                    else:
-                        print("Skipped task:", k, " in lang:", lang)
-
-                with open(os.path.join(metrics_path, "final_metrics_"+lang+"_trainsubtask_"+str(i)+".pickle"), "wb") as output_file:
-                    pickle.dump(metrics, output_file)
-
-            print("------------------------------------")
-            metrics = {k: {} for k in range(0, len(dataset.train_stream[lang]))}
-            for k in range(0, len(dataset.train_stream[lang])):
-                if dataset.test_stream[lang][k]["size"] > 0:
-                    metrics[k] = evaluate_report(dataset.test_stream[lang][k],
-                                                 k,
-                                                 lang,
-                                                 lang,
-                                                 args,
-                                                 dataset,
-                                                 model,
-                                                 writer,
-                                                 i,
-                                                 num_steps,
-                                                 out_path=os.path.join(out_dir,
-                                                                       lang+"End_perf-train_"+str(i)+"-test_"+str(k)),
-                                                 verbose=args.verbose)
-                else:
-                    print("Skipped task:", k, " in lang:", lang)
-
-            with open(os.path.join(metrics_path, "final_metrics_"+lang+".pickle"), "wb") as output_file:
-                pickle.dump(metrics, output_file)
-            print("/////////////////////////////////////////////")
-
-    elif args.setup_opt in ["cll", "multi-incremental-lang"]:
-        """
-        Setup 3: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning" 
-        - Stream consisting of different combinations of languages.
-        => Each stream sees all intents
-        """
-        # Iterating over the stream of languages
+    if args.setup_opt in ["cll", "multi-incr-cll", "cil", "cil-other", "multi-incr-cil"]:
+        """ Continuous Learning Scenarios """
 
         sample_sizes = []
         best_saved_grads = None
@@ -1026,47 +977,6 @@ def run(out_dir, metrics_path, args):
         subtask_size = {i: 0 for i in range(len(dataset.train_stream))}
 
         best_model = None
-
-        if args.multi_head_in:
-            if args.emb_enc_lang_spec == ["all"]:
-                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
-                                                                                                model_name)).
-                               named_parameters()} for _ in dataset.train_stream]
-            else:
-                prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
-                                                                                                model_name)).
-                               named_parameters() if name_in_list(args.emb_enc_lang_spec, k)}
-                               for _ in dataset.train_stream]
-
-        else:
-            prior_mbert = [None for _ in dataset.train_stream]
-
-        if args.multi_head_out:
-            prior_intents = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, num_intents).
-                             named_parameters()} for _ in dataset.train_stream]
-
-            prior_slots = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, eff_num_slot).
-                           named_parameters()} for _ in dataset.train_stream]
-
-            #prior_crf = [CRFLayer(eff_num_slot, device) for _ in dataset.train_stream]
-        else:
-            prior_intents = [None for _ in dataset.train_stream]
-            prior_slots = [None for _ in dataset.train_stream]
-            #prior_crf = [None for _ in dataset.train_stream]
-
-        if args.use_adapters:
-            prior_adapter_norm_before = [{k: v for k, v in nn.LayerNorm(768).named_parameters()}
-                                         for _ in dataset.train_stream]
-
-            prior_adapter_down_1 = [{k: v for k, v in nn.Linear(768, 768//2).named_parameters()}
-                                    for _ in dataset.train_stream]
-
-            prior_adapter_up = [{k: v for k, v in nn.Linear(768//2, 768).named_parameters()}
-                                for _ in dataset.train_stream]
-        else:
-            prior_adapter_norm_before = [None for _ in dataset.train_stream]
-            prior_adapter_down_1 = [None for _ in dataset.train_stream]
-            prior_adapter_up = [None for _ in dataset.train_stream]
 
         # Used for comparison only and to reinitialize trans_model but without using it as a reference
         original_mbert = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
@@ -1079,29 +989,17 @@ def run(out_dir, metrics_path, args):
         mean_all_stream = []
         sum_all_stream = []
 
-        if args.cont_learn_alg == "ewc":
-            cont_learn_alg = EWC(device,
-                                 checkpoint_dir,
-                                 args.use_online,
-                                 args.gamma_ewc)
-
-        elif args.cont_learn_alg == "gem":
-            cont_learn_alg = GEM(dataset,
-                                 args.use_slots,
-                                 args.use_a_gem,
-                                 args.a_gem_n,
-                                 checkpoint_dir)
-        else:
-            cont_learn_alg = None
-
-        for train_idx, subtask in enumerate(dataset.train_stream):
-            dev_perf_best = 0.0
-            sample_sizes.append(int(subtask["size"]*args.old_task_prop))
+        for train_idx, train_subtask_lang in enumerate(train_stream):
+            if train_subtask_lang["size"] == 0:
+                print("Skipped subtask/language:", train_idx)
+                continue
+            sample_sizes.append(int(train_subtask_lang["size"]*args.old_task_prop))
             num_steps = 0
-            num_iter = subtask["size"]//args.batch_size
-            train_lang = subtask["lang"]
-            stream = subtask["stream"]
-            if args.first_lang:
+            num_iter = train_subtask_lang["size"]//args.batch_size
+            train_lang = train_subtask_lang["lang"]
+            train_examples = train_subtask_lang["examples"]
+
+            if args.freeze_first:
                 start_freeze = 0
             else:
                 start_freeze = 1
@@ -1119,18 +1017,18 @@ def run(out_dir, metrics_path, args):
                         if p.requires_grad and 'slot_classifier' in n:
                             p.requires_grad = False
 
-            subtask_size[train_idx] = subtask["size"]
+            subtask_size[train_idx] = train_subtask_lang["size"]
 
             """ 1. Reinitialize linear layers for each new language """
             if args.multi_head_in or args.multi_head_out or args.use_adapters:
                 model_dict = model.state_dict()
 
             if args.multi_head_in:
-                if args.emb_enc_lang_spec == ["all"]:
+                if args.emb_enc_subtask_spec == ["all"]:  # could either be lang or subtask specific
                     trans_model_dict = {"trans_model."+k: v for k, v in original_mbert.named_parameters()}
                 else:
                     trans_model_dict = {"trans_model."+k: v for k, v in original_mbert.named_parameters()
-                                        if name_in_list(args.emb_enc_lang_spec, k)}
+                                        if name_in_list(args.emb_enc_subtask_spec, k)} # TODO rename this argument
 
                 model_dict.update(trans_model_dict)
 
@@ -1140,9 +1038,6 @@ def run(out_dir, metrics_path, args):
 
                 slot_classifier_dict = {"slot_classifier."+k: v for k, v in original_slot.named_parameters()}
                 model_dict.update(slot_classifier_dict)
-
-                # crf_dict = {k: v for k, v in original_crf.named_parameters()}
-                # model_dict.update(crf_dict)
 
             if args.use_adapters:
                 adapter_norm_before_dict = {"adapter.adapter_norm_before."+k: v for k, v in
@@ -1159,118 +1054,54 @@ def run(out_dir, metrics_path, args):
             if args.multi_head_in or args.multi_head_out or args.use_adapters:
                 model.load_state_dict(model_dict)
 
-            for epoch in tqdm(range(args.epochs)):
-                gc.collect()
-                num_steps += 1
-                for step_iter in range(num_iter):
-                    train_outputs = train(optimizer,
-                                          model,
-                                          grad_dims,
-                                          cont_learn_alg,
-                                          dataset,
-                                          stream,
-                                          subtask_size,
-                                          writer,
-                                          epoch,
-                                          train_idx,
-                                          step_iter,
-                                          checkpoint_dir,
-                                          sample_sizes=sample_sizes)
-
-                    if args.use_slots:
-                        intent_loss, slot_loss, params, saved_grads = train_outputs
-                        if step_iter % args.eval_steps == 0:
-                            print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
-                                                                                               intent_loss.mean(),
-                                                                                               slot_loss.mean()))
-                    else:
-                        intent_loss, params, saved_grads = train_outputs
-                        if step_iter % args.eval_steps == 0:
-                            print('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
-                                                                           intent_loss.mean()))
-
-                print(">>>>>>> Dev Performance >>>>>")
-                dev_out_path = None
-                if args.save_dev_pred:
-                    dev_out_path = os.path.join(out_dir,
-                                                "Dev_perf-Epoch_" + str(epoch) + "-train_" + train_lang)
-
-                _, dev_perf = evaluate_report(dataset,
-                                              dataset.dev_stream[train_idx],
-                                              model,
-                                              train_lang,
-                                              train_idx,
-                                              train_lang,
-                                              train_idx,
-                                              num_steps,
-                                              writer,
-                                              name="dev",
-                                              out_path=dev_out_path)
-
-                if dev_perf > dev_perf_best:
-                    dev_perf_best = dev_perf
-
-                    if args.save_model:
-                        torch.save(args, args_save_file)
-                        torch.save(model.state_dict(), model_save_file)
-                        torch.save(optimizer.state_dict(), optim_save_file)
-
-                    best_model = model
-
-                if best_model is None:
-                    best_model = model
-
-                if args.save_test_every_epoch:
-                    metrics = {lang: {} for lang in dataset.test_stream}
-
-                    for test_idx, test_lang in enumerate(dataset.test_stream):
-                        metrics[test_lang], _ = evaluate_report(dataset,
-                                                                dataset.test_stream[test_lang],
-                                                                best_model,
-                                                                train_lang,
-                                                                train_idx,
-                                                                test_lang,
-                                                                test_idx,
-                                                                num_steps,
-                                                                writer,
-                                                                name="test",
-                                                                out_path=os.path.join(out_dir,
-                                                                                      "Test_perf-Epoch_" + str(epoch)
-                                                                                      + "-train_" + train_lang
-                                                                                      + "-test_" + test_lang),
-                                                                verbose=args.verbose,
-                                                                prior_mbert=prior_mbert[test_idx],
-                                                                prior_intents=prior_intents[test_idx],
-                                                                prior_slots=prior_slots[test_idx],
-                                                                prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
-                                                                prior_adapter_down_1=prior_adapter_down_1[test_idx],
-                                                                prior_adapter_up=prior_adapter_up[test_idx])
-
-                    with open(os.path.join(metrics_path,
-                                           "epoch_"+str(epoch)+"_metrics_"+str(train_idx)+".pickle"), "wb") \
-                            as output_file:
-                        pickle.dump(metrics, output_file)
+            params, saved_grads, best_model, optimizer = train_task_epochs(model,
+                                                                           optimizer,
+                                                                           grad_dims,
+                                                                           cont_learn_alg,
+                                                                           dataset,
+                                                                           train_examples,
+                                                                           dev_stream,
+                                                                           test_stream,
+                                                                           subtask_size,
+                                                                           sample_sizes,
+                                                                           num_iter,
+                                                                           train_idx,
+                                                                           train_lang, # training name of the task # TODO think about it
+                                                                           num_steps,
+                                                                           writer,  # saving options
+                                                                           checkpoint_dir,
+                                                                           args_save_file,
+                                                                           model_save_file,
+                                                                           optim_save_file,
+                                                                           prior_mbert,  # prior options
+                                                                           prior_intents,
+                                                                           prior_slots,
+                                                                           prior_adapter_norm_before,
+                                                                           prior_adapter_down_1,
+                                                                           prior_adapter_up)
 
             """ 2. Saving the trained weights of MBERT in each language to be used later on in testing stage"""
 
-            mbert_task = copy.deepcopy(model.trans_model)
-            intents_task = copy.deepcopy(model.intent_classifier)
-            slots_task = copy.deepcopy(model.slot_classifier)
-            adapter_norm_before = copy.deepcopy(model.adapter.adapter_norm_before)
-            adapter_down_1 = copy.deepcopy(model.adapter.adapter_down[1])
-            adapter_up = copy.deepcopy(model.adapter.adapter_up)
-
             if args.multi_head_in:
+                mbert_task = copy.deepcopy(model.trans_model)
                 prior_mbert[train_idx] = {k: v for k, v in mbert_task.named_parameters()
                                           if name_in_list(args.emb_enc_lang_spec, k)}
 
             if args.multi_head_out:
+                intents_task = copy.deepcopy(model.intent_classifier)
                 prior_intents[train_idx] = {k: v for k, v in intents_task.named_parameters()}
+
+                slots_task = copy.deepcopy(model.slot_classifier)
                 prior_slots[train_idx] = {k: v for k, v in slots_task.named_parameters()}
 
             if args.use_adapters:
+                adapter_norm_before = copy.deepcopy(model.adapter.adapter_norm_before)
                 prior_adapter_norm_before[train_idx] = {k: v for k, v in adapter_norm_before.named_parameters()}
+
+                adapter_down_1 = copy.deepcopy(model.adapter.adapter_down[1])
                 prior_adapter_down_1[train_idx] = {k: v for k, v in adapter_down_1.named_parameters()}
+
+                adapter_up = copy.deepcopy(model.adapter.adapter_up)
                 prior_adapter_up[train_idx] = {k: v for k, v in adapter_up.named_parameters()}
 
             if args.save_change_params:
@@ -1294,31 +1125,19 @@ def run(out_dir, metrics_path, args):
                     with open(grads_save_file, "wb") as file:
                         pickle.dump(saved_grads, file)
 
-            print("------------------------------------ TESTING At the end of the training")
-            metrics = {lang: {} for lang in dataset.test_stream}
-            for test_idx, test_lang in enumerate(dataset.test_stream):
-                metrics[test_lang], _ = evaluate_report(dataset,
-                                                        dataset.test_stream[test_lang],
-                                                        best_model,
-                                                        train_lang,
-                                                        train_idx,
-                                                        test_lang,
-                                                        test_idx,
-                                                        num_steps,
-                                                        writer,
-                                                        name="test",
-                                                        out_path=os.path.join(out_dir, "End_test_perf-train_"+train_lang
-                                                                              + "-test_" + test_lang),
-                                                        verbose=args.verbose,
-                                                        prior_mbert=prior_mbert[test_idx],
-                                                        prior_intents=prior_intents[test_idx],
-                                                        prior_slots=prior_slots[test_idx],
-                                                        prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
-                                                        prior_adapter_down_1=prior_adapter_down_1[test_idx],
-                                                        prior_adapter_up=prior_adapter_up[test_idx])
-
-            with open(os.path.join(metrics_path, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
-                pickle.dump(metrics, output_file)
+            test_at_end_training(best_model,
+                                 dataset,
+                                 test_stream,
+                                 train_idx,
+                                 train_lang,
+                                 num_steps,
+                                 writer,
+                                 prior_mbert,
+                                 prior_intents,
+                                 prior_slots,
+                                 prior_adapter_norm_before,
+                                 prior_adapter_down_1,
+                                 prior_adapter_up)
 
         with open(os.path.join(metrics_path, "mean_all_stream_mbert.pickle"), "wb") as output_file:
             pickle.dump(mean_all_stream, output_file)
@@ -1344,7 +1163,7 @@ def run(out_dir, metrics_path, args):
                 num_steps += 1
                 num_iter = subtask["size"] // args.batch_size
                 lang = subtask["lang"]
-                stream = subtask["stream"]
+                stream = subtask["examples"]
 
                 for j in range(num_iter):
                     if args.use_slots:
@@ -1381,7 +1200,7 @@ def run(out_dir, metrics_path, args):
                     else:
                         print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
 
-                    if j % args.eval_steps == 0:
+                    if j % args.test_steps == 0:
                         for lang in dataset.test_stream[i]:
                             for k in range(0, i+1):
                                 if dataset.test_stream[k][lang]["size"] > 0:
@@ -1427,83 +1246,57 @@ def run(out_dir, metrics_path, args):
         """
         Setup 5: Multi-task/Joint Learning: train on all languages and intent classes at the same time 
         """
-        for epoch in tqdm(range(args.epochs)):
-            gc.collect()
 
-            num_steps = 0
-            # There is only one task here no subtasks
-            task = dataset.train_stream["stream"]
-            num_steps += 1
+        # There is only one task here no subtasks
+        train_examples = dataset.train_stream["examples"]
+        dev_stream = dataset.dev_stream
+        test_stream = dataset.test_stream
+        subtask_size = {0: dataset.train_stream["size"]}
+        num_iter = dataset.train_stream["size"]//args.batch_size
+        train_idx = 0  # only one task here
+        sample_sizes = [int(dataset.train_stream["size"]*args.old_task_prop)] # not needed anyways because no continuous learning here
+        train_lang = "-".join(args.languages)  # all languages
+        num_steps = 0
 
-            num_iter = dataset.train_stream["size"]//args.batch_size
+        params, saved_grads, best_model, optimizer = train_task_epochs(model,
+                                                                       optimizer,
+                                                                       grad_dims,
+                                                                       cont_learn_alg,
+                                                                       dataset,
+                                                                       train_examples,
+                                                                       dev_stream,
+                                                                       test_stream,
+                                                                       subtask_size,
+                                                                       sample_sizes,
+                                                                       num_iter,
+                                                                       train_idx,
+                                                                       train_lang,
+                                                                       num_steps,
+                                                                       writer,  # saving options
+                                                                       checkpoint_dir,
+                                                                       args_save_file,
+                                                                       model_save_file,
+                                                                       optim_save_file,
+                                                                       prior_mbert,  # prior options
+                                                                       prior_intents,
+                                                                       prior_slots,
+                                                                       prior_adapter_norm_before,
+                                                                       prior_adapter_down_1,
+                                                                       prior_adapter_up)
 
-            for j in range(num_iter):
-
-                if args.use_slots:
-                    intent_loss, slot_loss = train(args,
-                                                   optimizer,
-                                                   model,
-                                                   dataset,
-                                                   task,
-                                                   writer,
-                                                   epoch,
-                                                   0,
-                                                   j)
-                else:
-                    intent_loss = train(args,
-                                        optimizer,
-                                        model,
-                                        dataset,
-                                        task,
-                                        writer,
-                                        epoch,
-                                        0,
-                                        j)
-
-                if args.use_slots:
-                    print('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                       intent_loss.mean(),
-                                                                                       slot_loss.mean()))
-                else:
-                    print('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
-            metrics = {lang: {} for lang in dataset.test_stream}
-            for lang in dataset.test_stream:
-                metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                                                0,
-                                                "all",
-                                                lang,
-                                                args,
-                                                dataset,
-                                                model,
-                                                writer,
-                                                0,
-                                                num_steps,
-                                                out_path=os.path.join(out_dir,
-                                                                      "Test_perf-Epoch_"+epoch+ "-test_"+lang),
-                                                verbose=args.verbose)
-
-            with open(os.path.join(metrics_path, "epoch_"+str(epoch)+"_metrics.pickle"), "wb") as output_file:
-                pickle.dump(metrics, output_file)
-
-        print("Evaluation at the end of all epochs")
-        metrics = {lang: {} for lang in dataset.test_stream}
-        for lang in dataset.test_stream:
-            metrics[lang] = evaluate_report(dataset.test_stream[lang],
-                                            0,
-                                            "all",
-                                            lang,
-                                            args,
-                                            dataset,
-                                            model,
-                                            writer,
-                                            0,
-                                            num_steps,
-                                            out_path=os.path.join(out_dir, "End_perf-"+lang),
-                                            verbose=args.verbose)
-
-        with open(os.path.join(metrics_path, "final_metrics.pickle"), "wb") as output_file:
-            pickle.dump(metrics, output_file)
+        test_at_end_training(best_model,
+                             dataset,
+                             test_stream,
+                             train_idx,
+                             train_lang,
+                             num_steps,
+                             writer,
+                             prior_mbert,
+                             prior_intents,
+                             prior_slots,
+                             prior_adapter_norm_before,
+                             prior_adapter_down_1,
+                             prior_adapter_up)
 
 
 def set_seed():
@@ -1515,199 +1308,234 @@ def set_seed():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser("./main.py", description="Different options/arguments for running continuous"
+                                                              "learning algorithms.")
 
     ## PATHS
-    parser.add_argument("--data_root", help="Root directory of the data",
-                        type=str, default="")
+    path_params = parser.add_argument_group("Path Parameters")
+    path_params.add_argument("--data_root", help="Root directory of the dataset.",
+                             type=str, default="")
 
-    parser.add_argument("--model_root", help="Path to the root directory hosting the trans model if offline",
-                        type=str, default="")
+    path_params.add_argument("--model_root", help="Path to the root directory hosting the trans model, if offline.",
+                             type=str, default="")
 
-    parser.add_argument("--out_dir", help="The root directory of the results for this project",
-                        type=str, default="")
+    path_params.add_argument("--out_dir", help="The root directory of the results for this project.",
+                             type=str, default="")
 
-    parser.add_argument("--stats_file", help="Filename of the stats file",
-                        type=str, default="stats.txt")
+    path_params.add_argument("--stats_file", help="Filename of the stats file.",  # TODO CHECK WHAT THIS DOES EXACTLY
+                             type=str, default="stats.txt")
 
-    parser.add_argument("--log_file", help="Filename of the log file",
-                        type=str, default="log.txt")
+    path_params.add_argument("--log_file", help="Filename of the log file.",  # TODO DO PROPER CHECKPOINTING
+                             type=str, default="log.txt")
 
-    ## SETUP OPTION
-    parser.add_argument("--setup_opt", help="Whether to pick setup "
-                                            "   cil: Cross-CIL with fixed LL, "
-                                            "   cil-other: incremental version of cil where previous intents' subtasks "
-                                            "              are added in addition to other labels for subsequent "
-                                            "              intents'subtasks, "
-                                            "   cll: Cross-LL with fixed CIL,"
-                                            "   cil-ll: Cross-CIL-LL,"
-                                            "   multi: multi-tasking one model on all tasks and langs,"
-                                            "   multi-incremental-lang: weaker version of Multi-task/Joint Learning "
-                                            "                           where we gradually fine-tune",
-                        choices=['cil', 'cil-other', 'cll', 'cil-ll', 'multi', 'multi-incremental-lang'],
-                        type=str, default="cll")
+    ## SETUP OPTIONS
+    setup_params = parser.add_argument_group("Setup Scenarios Parameters")
+    setup_params.add_argument("--setup_opt", help="The different setup scenarios to pick from:"
+                                                  "* cil:        Cross-CIL with fixed LL. "
+                                                  "* cil-other:  Incremental version of cil where previous intents' "
+                                                  "              subtasks are added in addition to other labels for"
+                                                  "              subsequent intents'subtasks."
+                                                  "* cll:        Cross-LL with fixed CIL."
+                                                  "* cil-ll:     Cross CIL and CLL mixed."
+                                                  "* multi-incr-cil: Weaker version of Multi-Task Learning, where we"
+                                                  "                  gradually fine-tune on the accumulation of "
+                                                  "                  different subtasks."
+                                                  "* multi-incr-cll: Weaker version of Multilingual Learning, where we"
+                                                  "                  gradually fine-tune on the accumulation of "
+                                                  "                  different languages."
+                                                  "* multi:      Multi-tasking one model on all tasks and languages.",
 
-    parser.add_argument("--order_class", help="Different ways of ordering the classes"
-                                              "0: decreasing order (from high to low-resource), "
-                                              "1: increasing order (from low to high-resource),"
-                                              "2: random order",
-                        type=int, default=0)
+                              choices=["cil", "cil-other", "multi-incr-cil",
+                                       "cll", "multi-incr-cll",
+                                       "cil-ll",
+                                       "multi"],
+                              type=str, default="cll")
 
-    parser.add_argument("--order_lang", help="Different ways of ordering the languages"
-                                             "0: decreasing order (from high to low-resource) , "
-                                             "1: increasing order (from low to high-resource),"
-                                             "2: random order",
-                        type=int, default=0)
+    setup_params.add_argument("--cil_stream_lang", help="Which lang to work on for the CIL setup if it is picked.")
 
-    parser.add_argument("--order_str", help="specific order for languages",
-                        nargs='+', default=[])
+    setup_params.add_argument("--order_class", help="Different ways of ordering the classes:"
+                                                    "* 0: high2lowclass: decreasing order (from high to low-resource)."
+                                                    "* 1: low2highclass: increasing order (from low to high-resource)."
+                                                    "* 2: randomclass: random order.",
+                              type=int, default=0)
 
-    parser.add_argument("--setup_3", help="intents: traversing subtasks horizontally over all classes first then "
-                                          "         to languages,"
-                                          "langs: traversing subtasks vertically over all languages first then "
-                                          "         to classes",
-                        type=str, default="intents")
+    setup_params.add_argument("--order_lang", help="Different ways of ordering the languages:"
+                                                   "* 0: high2lowlang: decreasing order (from high to low-resource)."
+                                                   "* 1: low2highlang: increasing order (from low to high-resource)."
+                                                   "* 2: randomlang: random order.",
+                              type=int, default=0)
 
-    parser.add_argument('--use_slots', help='If true, optimize for slot filling loss too',
-                        action='store_true')
+    setup_params.add_argument("--order_str", help="Specific order for subtasks and languages: list of languages "
+                                                  "or subtasks.",
+                              nargs='+', default=[])
 
-    parser.add_argument('--verbose', help='If true, return golden labels and predictions ',
-                        action='store_true')
+    setup_params.add_argument("--setup_cillia", help="Different ways of ordering mixture of both cll and cil:"
+                                                     "* intents: traversing subtasks horizontally over all intent "
+                                                     "           classes first then to languages."
+                                                     "* langs: traversing subtasks vertically over all languages first"
+                                                     "         then to classes.",
+                              type=str, default="intents")
 
-    parser.add_argument('--save_dev_pred', help='If true, save dev perf ',
-                        action='store_true')
+    setup_params.add_argument('--random_pred', help="Whether to predict directly the random initialization of the model"
+                                                    "when tested directly on the languages without any fine-tuning.",
+                              action="store_true")
 
-    parser.add_argument('--save_test_every_epoch', help='If true, save test at the end of each epoch ',
-                        action='store_true')
 
-    parser.add_argument('--save_change_params', help='If true, save test at the end of each epoch ',
-                        action='store_true')
+    ## DATASET OPTIONS
+    dataset_params = parser.add_argument_group("Dataset Options")
+    dataset_params.add_argument("--data_format", help="Whether it is tsv (MTOD), json, or txt (MTOP).",
+                                type=str, default="txt")
 
-    parser.add_argument('--no_debug', help='If true, return golden labels and predictions ',
-                        action='store_true')
+    dataset_params.add_argument("--languages", help="Train languages list.",
+                                nargs="+", default=["de", "en", "es", "fr", "hi", "th"])
 
-    parser.add_argument('--random_pred', help='Whether to predict directly the random initialization of the model when'
-                                              'tested directly on the languages without any fine-tuning',
-                        action='store_true')
+    dataset_params.add_argument("--num_intent_tasks", help="The number of intent per task.",
+                                type=int, default=10)
 
-    ## TRAINING OPTIONS
-    parser.add_argument("--trans_model", help="Name of transformer model",
-                        type=str, default="BertBaseMultilingualCased")
+    dataset_params.add_argument("--num_lang_tasks", help="The number of lang per task.",
+                                type=int, default=2)
 
-    parser.add_argument("--freeze_bert", help="Whether to freeze all layers in bert after first language",
-                        action='store_true')
+    ## Checkpointing/logging options
+    checkpointing_params = parser.add_argument_group("Checkpointing/logging Parameters")
+    checkpointing_params.add_argument("--verbose", help="If true, return golden labels and predictions to console.",
+                                      action="store_true")
 
-    parser.add_argument("--first_lang", help="Whether to freeze from the first language",
-                        action='store_true')
+    checkpointing_params.add_argument("--save_dev_pred", help="If true, save the dev predictions.",
+                                      action="store_true")
 
-    parser.add_argument("--freeze_linear", help="Whether to freeze all task-specific layers after first language",
-                        action='store_true')
+    checkpointing_params.add_argument("--save_test_every_epoch", help="If true, save test at the end of each epoch.",
+                                      action="store_true")
 
-    parser.add_argument("--use_mono", help="Whether to train monolingually",
-                        action='store_true')
+    checkpointing_params.add_argument("--save_change_params", help="If true, save test at the end of each epoch.",
+                                      action="store_true")
 
-    parser.add_argument("--multi_head_in", help="Whether to use multiple heads in the input of inputs that would"
-                                                "imply the separation of the vocabulary of M-BERT",
-                        action='store_true')
+    checkpointing_params.add_argument("--no_debug", help="If true, save training and testing logs to disk.",
+                                      action="store_true")
 
-    parser.add_argument("--emb_enc_lang_spec", help="Which layer in the embeddings or the encoder to tune for each"
-                                                    "language independently.",
-                        nargs="+", default=["embeddings"],
-                        choices=["embeddings",
-                                 "encoder.layer.0.",
-                                 "encoder.layer.1.",
-                                 "encoder.layer.2.",
-                                 "encoder.layer.3.",
-                                 "encoder.layer.4.",
-                                 "encoder.layer.5.",
-                                 "encoder.layer.6.",
-                                 "encoder.layer.7.",
-                                 "encoder.layer.8.",
-                                 "encoder.layer.9.",
-                                 "encoder.layer.10.",
-                                 "encoder.layer.11.",
-                                 "pooler",
-                                 "all"])
+    checkpointing_params.add_argument("--save_model", help="Whether to save the model after training.",
+                                      action="store_true")
 
-    parser.add_argument("--multi_head_out", help="Whether to use multiple heads in the outputs that would"
-                                                 "imply the use of different linear layers",
-                        action='store_true')
+    ## BASE MODEL TRAINING OPTIONS
+    base_model_params = parser.add_argument_group("Base Model Parameters")
+    base_model_params.add_argument("--trans_model", help="Name of the Transformer encoder model.",
+                                   type=str, default="BertBaseMultilingualCased")
 
-    parser.add_argument("--adapter_layers", help="List of layers to which adapters are applied",
-                        nargs="+", default=[0, 1, 2, 3, 4, 5])
+    base_model_params.add_argument("--use_slots", help="If true, optimize for slot filling loss too.",
+                                   action="store_true")
 
-    parser.add_argument('--data_format', help='Whether it is tsv (MTOD), json, or txt (MTOP)',
-                        type=str, default="txt")
+    base_model_params.add_argument("--use_mono", help="Whether to train monolingually.",
+                                   action="store_true")
 
-    parser.add_argument("--languages", help="train languages list",
-                        nargs="+", default=["de", "en", "es", "fr", "hi", "th"])
+    base_model_params.add_argument("--epochs", help="The total number of epochs.",
+                                   type=int, default=10)
 
-    parser.add_argument("--num_intent_tasks", help="The number of intent per task",
-                        type=int, default=10)
+    base_model_params.add_argument("--dev_steps", help="The total number of epochs to evaluate the model on the dev.",
+                                   type=int, default=200)  # TODO DEV IS EVALUATED ON ONLY AFTER EACH EPOCH
 
-    parser.add_argument("--num_lang_tasks", help="The number of lang per task",
-                        type=int, default=2)
+    base_model_params.add_argument("--test_steps", help="The total number of epochs to evaluate the model on the test.",
+                                   type=int, default=200)  # TODO THIS IS NOT USED CONSISTENTLY
 
-    parser.add_argument("--epochs", help="The total number of epochs",
-                        type=int, default=10)
+    base_model_params.add_argument("--batch_size", help="The total number of epochs for the model to evaluate.",
+                                   type=int, default=32)
 
-    parser.add_argument("--eval_steps", help="The total number of epochs for the model to evaluate (test mode)",
-                        type=int, default=200)
+    base_model_params.add_argument("--adam_lr", help="The learning rate for Adam Optimizer.",
+                                   type=float, default=1e-03)
 
-    parser.add_argument("--dev_steps", help="The total number of epochs for the model to evaluate (dev mode)",
-                        type=int, default=200)
+    base_model_params.add_argument("--adam_eps", help="Epsilon for the Adam Optimizer.",
+                                   type=float, default=1e-08)
 
-    parser.add_argument("--batch_size", help="The total number of epochs for the model to evaluate",
-                        type=int, default=32)
+    base_model_params.add_argument("--beta_1", help="Beta_1 for the Adam Optimizer.",
+                                   type=float, default=0.9)
 
-    parser.add_argument("--step_size", help="The step size for the scheduler",
-                        type=int, default=7)
+    base_model_params.add_argument("--beta_2", help="Beta_2 for the Adam Optimizer.",
+                                   type=float, default=0.99)
 
-    parser.add_argument("--gamma", help="gamma for the scheduler",
-                        type=float, default=0.1)
+    base_model_params.add_argument("--step_size", help="The step size for the scheduler.",
+                                   type=int, default=7)
 
-    parser.add_argument("--adam_lr", help="The learning rate",
-                        type=float, default=1e-03)
+    base_model_params.add_argument("--gamma", help="Gamma for the scheduler.",
+                                   type=float, default=0.1)
 
-    parser.add_argument("--adam_eps", help="epsilon",
-                        type=float, default=1e-08)
+    base_model_params.add_argument("--seed", help="Random Seed.",
+                                   type=int, default=42)
 
-    parser.add_argument("--beta_1", help="beta_1 for Adam",
-                        type=float, default=0.9)
+    ### FREEZING OPTIONS
+    freezing_params = parser.add_argument_group("Freezing Options")
+    freezing_params.add_argument("--freeze_bert", help="Whether to freeze all layers in the Transformer encoder.",
+                                 action="store_true")
 
-    parser.add_argument("--beta_2", help="beta_2 for Adam",
-                        type=float, default=0.99)
+    freezing_params.add_argument("--freeze_first", help="Whether to freeze from the first subtask/language.",
+                                 action="store_true")
 
-    parser.add_argument("--seed", help="The total number of epochs",
-                        type=int, default=42)
+    freezing_params.add_argument("--freeze_linear", help="Whether to freeze all task-specific layers.",
+                                 action="store_true")
 
-    parser.add_argument("--cont_learn_alg", help="vanilla fine-tuning or some continuous learning algorithm "
-                                                 "(ewc, gem, mbpa, metambpa, etc)",
-                        type=str, default="vanilla")
 
-    parser.add_argument("--old_task_prop", help="the percentage of old tasks used for replay or regularization",
-                        type=float, default=1.0)
+    ## MODEL EXPANSION OPTIONS
+    model_expansion_params = parser.add_argument_group("Model Expansion Options")
+    model_expansion_params.add_argument("--multi_head_in", help="Whether to use multiple heads "
+                                                                "that would imply multiple subtask/language-specific "
+                                                                "heads at the input level.",
+                                        action="store_true")
 
-    parser.add_argument("--gamma_ewc", help="percentage of decay",
-                        type=int, default=0.01)
+    model_expansion_params.add_argument("--emb_enc_lang_spec", help="Which layer in the embeddings or the encoder "
+                                                                    "to tune for each language independently.",
+                                        choices=["embeddings",
+                                                 "encoder.layer.0.",
+                                                 "encoder.layer.1.",
+                                                 "encoder.layer.2.",
+                                                 "encoder.layer.3.",
+                                                 "encoder.layer.4.",
+                                                 "encoder.layer.5.",
+                                                 "encoder.layer.6.",
+                                                 "encoder.layer.7.",
+                                                 "encoder.layer.8.",
+                                                 "encoder.layer.9.",
+                                                 "encoder.layer.10.",
+                                                 "encoder.layer.11.",
+                                                 "pooler",
+                                                 "all"],
+                                        nargs="+", default=["embeddings"])
 
-    parser.add_argument("--use_online", help="Whether to use the online version of EWC or not",
-                        action='store_true')
+    model_expansion_params.add_argument("--multi_head_out", help="Whether to use multiple heads in the outputs that "
+                                                                 "would imply the use of different task-specific "
+                                                                 "layers.",
+                                        action="store_true")
 
-    parser.add_argument("--ewc_lambda", help="lambda for regularization in ewc",
-                        type=int, default=20)
+    model_expansion_params.add_argument("--use_adapters", help="whether to use adapters.",
+                                        action="store_true")
 
-    parser.add_argument("--use_a_gem", help="whether to use averaged gem",
-                        action='store_true')
+    model_expansion_params.add_argument("--adapter_layers", help="List of layers to which adapters are applied.",
+                                        nargs="+", default=[0, 1, 2, 3, 4, 5])
 
-    parser.add_argument("--a_gem_n", help="whether to use averaged gem",
-                        type=int, default=100)
+    ## MODEL EXPANSION OPTIONS
+    cont_learn_params = parser.add_argument_group("Continuous Learning Options")
+    cont_learn_params.add_argument("--cont_learn_alg", help="vanilla fine-tuning or some continuous learning algorithm:"
+                                                            "(ewc, gem, mbpa, metambpa, etc) or vanilla if no specific"
+                                                            "continuous learning algorithm is used.",
+                                   choices=["vanilla", "ewc", "gem"],  # TODO to be covered next "mbpa", "metambpa", "icarl", "xdg", "si", "lwf", "gr", "rtf", "er"
+                                   type=str, default="vanilla")
 
-    parser.add_argument("--save_model", help="whether to save the model after training",
-                        action="store_true")
+    ### for ewc
+    cont_learn_params.add_argument("--old_task_prop", help="The percentage of old tasks used in regularization "
+                                                           "or replay.",
+                                   type=float, default=1.0)
 
-    parser.add_argument("--use_adapters", help="whether to use adapters",
-                        action="store_true")
+    cont_learn_params.add_argument("--ewc_lambda", help="If ewc: lambda for regularization in ewc.",
+                                   type=int, default=20)
+
+    cont_learn_params.add_argument("--use_online", help="If ewc: Whether to use the online version of EWC or not.",
+                                   action='store_true')
+
+    cont_learn_params.add_argument("--gamma_ewc", help="If ewc: The percentage of decay.",
+                                   type=int, default=0.01)
+
+    ### for gem
+    cont_learn_params.add_argument("--use_a_gem", help="If gem: whether to use averaged gem.",
+                                   action="store_true")
+
+    cont_learn_params.add_argument("--a_gem_n", help="If gem: The number of examples in the averaged memory.",
+                                   type=int, default=100)
 
     args = parser.parse_args()
     set_seed()
