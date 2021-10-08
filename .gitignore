@@ -133,10 +133,9 @@ dmypy.json
 sync_scripts/*
 scratch.py
 ideas.txt
-scripts/paths.config
-scripts/paths_end.config
-extract_intents_slots.py
-check_intent_slot_coverage.py
+scripts/paths*
+sanity_checks
+sanity_checks/*
 dev_main.py
 freeze_layers.py
 
