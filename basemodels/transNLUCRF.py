@@ -1,9 +1,7 @@
 import torch.nn as nn
 import torch
-from downstreammodels.crf import CRFLayer
-from contlearnalg.adapter import Adapter
-from transformers_config import MODELS_dict
-import os
+from basemodels.crf import CRFLayer
+from utils import import_from
 
 SLOT_PAD = 0
 
@@ -34,22 +32,21 @@ class TransNLUCRF(nn.Module):
                  args,
                  trans_model,
                  num_tasks,
-                 num_intents, # total number of intents
-                 eff_num_intents_task, # effective number of intents per task
+                 num_intents,  # total number of intents
+                 eff_num_intents_task,  # effective number of intents per task
                  device,
-                 use_multi_head_in,
-                 use_multi_head_out,
-                 adapter_layers,
-                 use_slots=False,
                  num_slots=0):
 
         super(TransNLUCRF, self).__init__()
 
-        self.use_multi_head_in = use_multi_head_in
-        self.use_multi_head_out = use_multi_head_out
+        self.args = args
+        self.use_multi_head_in = args.multi_head_in
+        self.use_multi_head_out = args.multi_head_out
         self.num_tasks = num_tasks
 
         self.config = trans_model.config
+        self.use_slots = args.use_slots
+        self.use_adapters = args.use_adapters
 
         self.trans_model = trans_model
 
@@ -62,28 +59,34 @@ class TransNLUCRF(nn.Module):
         #
         # self.trans_model = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
 
-        self.use_slots = use_slots
+        self.use_slots = args.use_slots
         self.num_slots = num_slots
 
         self.dropout = nn.Dropout(trans_model.config.hidden_dropout_prob)
 
-        self.intent_classifier = nn.Linear(trans_model.config.hidden_size, self.num_intents)
+        if "cil" in self.args.setup_opt and self.use_multi_head_out:
+            self.intent_classifier = nn.ModuleList([nn.Linear(trans_model.config.hidden_size, self.eff_num_intents_task[i])
+                                                    for i in range(self.num_tasks)])
+        else:
+            self.intent_classifier = nn.Linear(trans_model.config.hidden_size, self.num_intents)
 
         self.intent_criterion = torch.nn.CrossEntropyLoss()
 
-        if use_slots:
-
+        if self.use_slots:
             self.slot_classifier = nn.Linear(trans_model.config.hidden_size, self.num_slots)
 
             self.crf_layer = CRFLayer(self.num_slots, self.device)
 
-        self.adapter = Adapter(768)  # (16, 24, 768)
+        if self.use_adapters:
+            Adapter = import_from('contlearnalg.adapter', args.adapter_type)
+            self.adapter = Adapter(trans_model.config.hidden_size)  # (16, 24, 768)
 
-        self.adapter_layers = adapter_layers
+            self.adapter_layers = args.adapter_layers
 
     def forward(self,
                 input_ids,
                 input_masks,
+                train_idx,
                 lengths,
                 intent_labels=None,
                 slot_labels=None):
@@ -91,43 +94,38 @@ class TransNLUCRF(nn.Module):
         if self.training:
             self.trans_model.train()
             self.crf_layer.train()
-            lm_output = self.trans_model(input_ids)
+            lm_output = self.trans_model(input_ids=input_ids,
+                                         attention_mask=input_masks)
         else:
             self.trans_model.eval()
             self.crf_layer.eval()
             with torch.no_grad():
-                lm_output = self.trans_model(input_ids)
+                lm_output = self.trans_model(input_ids=input_ids,
+                                             attention_mask=input_masks)
 
-        hidden_outputs = []
+        if self.use_adapters:
+            hidden_outputs = []
+            embeddings = lm_output[2][0]  # embeddings
+            hidden_outputs.append(embeddings)
+            for i in range(1, self.trans_model.config.num_hidden_layers+1):
+                output_hidden = lm_output[2][i]
+                if str(i) in self.adapter_layers:
+                    output_hidden = self.adapter(output_hidden)[0]
 
-        embeddings = lm_output[2][0]  # embeddings
-        hidden_outputs.append(embeddings)
+                hidden_outputs.append(output_hidden)
 
-        # print("input_ids.shape:", input_ids.shape)
+            stacked_tensor = torch.stack(hidden_outputs)
+            avg_pooled = torch.mean(stacked_tensor, axis=0)
 
-        # print("embeddings.shape:", embeddings.shape)
-        for i in range(1, self.trans_model.config.num_hidden_layers+1):
-            # print("lm_output[2][i].shape:", lm_output[2][i].shape)
-            # for every layer or
-            # hidden_states.append(lm_output[2][i])
-            output_hidden = lm_output[2][i]
-            if i in self.adapter_layers:
-                # print("output_hidden.shape:", output_hidden.shape)
-                output_hidden = self.adapter(output_hidden)[0]
-
-            hidden_outputs.append(output_hidden)
-
-        stacked_tensor = torch.stack(hidden_outputs)
-        avg_pooled = torch.mean(stacked_tensor, axis=0)
-
-        # print("adapter_outputs[0].shape:", hidden_outputs[0][0].shape)
-        # print("stacked_tensor.shape:", stacked_tensor.shape)
-        # print("avg_pooled.shape:", avg_pooled.shape)
-
-        cls_token = avg_pooled[:, 0, :]
+            cls_token = avg_pooled[:, 0, :]
+        else:
+            cls_token = lm_output[0][:, 0, :]
         pooled_output = self.dropout(cls_token)
 
-        logits_intents = self.intent_classifier(pooled_output)
+        if "cil" in self.args.setup_opt and self.use_multi_head_out:
+            logits_intents = self.intent_classifier[train_idx](pooled_output)
+        else:
+            logits_intents = self.intent_classifier(pooled_output)
 
         intent_loss = self.intent_criterion(logits_intents, intent_labels)
         loss = intent_loss
