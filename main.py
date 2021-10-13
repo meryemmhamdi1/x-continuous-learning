@@ -5,7 +5,7 @@ from basemodels.transNLUCRF import TransNLUCRF
 from consts import intent_types, slot_types
 from contlearnalg.EWC_grads import EWC
 from contlearnalg.GEM import GEM
-from utils import format_store_grads, name_in_list, logger
+from utils import format_store_grads, name_in_list, logger, import_from
 
 # Torch
 import torch
@@ -244,21 +244,10 @@ def nlu_evaluation(dataset,
                    prior_mbert=None,
                    prior_intents=None,
                    prior_slots=None,
-                   prior_adapter_norm_before=None,
-                   prior_adapter_down_1=None,
-                   prior_adapter_up_1=None,
-                   prior_adapter_norm_after_1=None,
-                   prior_adapter_feed_layer_1=None,
-                   prior_adapter_feed_layer_2=None,
-                   prior_adapter_down_2=None,
-                   prior_adapter_up_2=None,
-                   prior_adapter_norm_after_2=None):
+                   prior_adapter=None):
 
     app_log.info("Evaluating on i_task: %d", test_idx)
-    if prior_mbert or prior_intents or prior_slots or prior_adapter_norm_before or prior_adapter_down_1 \
-            or prior_adapter_up_1 or prior_adapter_norm_after_1 or prior_adapter_feed_layer_1 or \
-            prior_adapter_feed_layer_2 or prior_adapter_down_2 or prior_adapter_up_2 or \
-            prior_adapter_norm_after_2:
+    if prior_mbert or prior_intents or prior_slots or prior_adapter:
 
         model_dict = model.state_dict()
 
@@ -289,54 +278,11 @@ def nlu_evaluation(dataset,
             ### 2. overwrite entries in the existing state dict
             model_dict.update(slot_classifier_dict)
 
-        if prior_adapter_norm_before:
-            adapter_norm_before_dict = {"adapter.adapter_norm_before."+k: v for k, v in prior_adapter_norm_before.items()}
+        if prior_adapter:
+            adapter_norm_before_dict = {"adapter."+k: v for k, v in prior_adapter.items()}
 
             ### 2. overwrite entries in the existing state dict
             model_dict.update(adapter_norm_before_dict)
-
-        if prior_adapter_down_1:
-            adapter_down_1_dict = {"adapter.adapter_down_1.1."+k: v for k, v in prior_adapter_down_1.items()}
-
-            ### 2. overwrite entries in the existing state dict
-            model_dict.update(adapter_down_1_dict)
-
-        if prior_adapter_up_1:
-            adapter_up_1_dict = {"adapter.adapter_up_1."+k: v for k, v in prior_adapter_up_1.items()}
-
-            ### 2. overwrite entries in the existing state dict
-            model_dict.update(adapter_up_1_dict)
-
-        if prior_adapter_norm_after_1:
-            adapter_norm_after_after_1_dict = {"adapter.adapter_norm_after_1."+k: v for k, v in
-                                               prior_adapter_norm_after_1.items()}
-            model_dict.update(adapter_norm_after_after_1_dict)
-
-        if prior_adapter_feed_layer_1:
-            adapter_feed_layer_1_dict = {"adapter.feed_layer_1."+k: v for k, v in
-                                         prior_adapter_feed_layer_1.items()}
-            model_dict.update(adapter_feed_layer_1_dict)
-
-        if prior_adapter_feed_layer_2:
-            adapter_feed_layer_2_dict = {"adapter.feed_layer_2."+k: v for k, v in
-                                         prior_adapter_feed_layer_2.items()}
-            model_dict.update(adapter_feed_layer_2_dict)
-
-        if prior_adapter_down_2:
-            adapter_down_2_dict = {"adapter.adapter_down_2.0."+k: v for k, v in
-                                   prior_adapter_down_2.items()}
-            model_dict.update(adapter_down_2_dict)
-
-        if prior_adapter_up_2:
-            adapter_up_2_dict = {"adapter.adapter_up_2."+k: v for k, v in
-                                 prior_adapter_up_2.items()}
-            model_dict.update(adapter_up_2_dict)
-
-        if prior_adapter_norm_after_2:
-            adapter_norm_after_after_2_dict = {"adapter.adapter_norm_after_2."+k: v for k, v in
-                                               prior_adapter_norm_after_2.items()}
-            model_dict.update(adapter_norm_after_after_2_dict)
-
 
         ### 3. load the new state dict
         model.load_state_dict(model_dict)
@@ -472,15 +418,7 @@ def evaluate_report(dataset,
                     prior_mbert=None,
                     prior_intents=None,
                     prior_slots=None,
-                    prior_adapter_norm_before=None,
-                    prior_adapter_down_1=None,
-                    prior_adapter_up_1=None,
-                    prior_adapter_norm_after_1=None,
-                    prior_adapter_feed_layer_1=None,
-                    prior_adapter_feed_layer_2=None,
-                    prior_adapter_down_2=None,
-                    prior_adapter_up_2=None,
-                    prior_adapter_norm_after_2=None):
+                    prior_adapter=None):
 
     outputs = nlu_evaluation(dataset,
                              data_stream["examples"],
@@ -493,15 +431,7 @@ def evaluate_report(dataset,
                              prior_mbert=prior_mbert,
                              prior_intents=prior_intents,
                              prior_slots=prior_slots,
-                             prior_adapter_norm_before=prior_adapter_norm_before,
-                             prior_adapter_down_1=prior_adapter_down_1,
-                             prior_adapter_up_1=prior_adapter_up_1,
-                             prior_adapter_norm_after_1=prior_adapter_norm_after_1,
-                             prior_adapter_feed_layer_1=prior_adapter_feed_layer_1,
-                             prior_adapter_feed_layer_2=prior_adapter_feed_layer_2,
-                             prior_adapter_down_2=prior_adapter_down_2,
-                             prior_adapter_up_2=prior_adapter_up_2,
-                             prior_adapter_norm_after_2=prior_adapter_norm_after_2)
+                             prior_adapter=prior_adapter)
 
     output_text_format = "----size=%d, test_index=%d, and task=%s" % (data_stream["size"],
                                                                       test_idx,
@@ -696,15 +626,7 @@ def train_task_epochs(model,
                       prior_mbert, # prior options
                       prior_intents,
                       prior_slots,
-                      prior_adapter_norm_before,
-                      prior_adapter_down_1,
-                      prior_adapter_up_1,
-                      prior_adapter_norm_after_1,
-                      prior_adapter_feed_layer_1,
-                      prior_adapter_feed_layer_2,
-                      prior_adapter_down_2,
-                      prior_adapter_up_2,
-                      prior_adapter_norm_after_2):
+                      prior_adapter):
 
     dev_perf_best = 0.0
     best_model = None
@@ -794,15 +716,7 @@ def train_task_epochs(model,
                                                                     prior_mbert=prior_mbert[test_idx],
                                                                     prior_intents=prior_intents[test_idx],
                                                                     prior_slots=prior_slots[test_idx],
-                                                                    prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
-                                                                    prior_adapter_down_1=prior_adapter_down_1[test_idx],
-                                                                    prior_adapter_up_1=prior_adapter_up_1[test_idx],
-                                                                    prior_adapter_norm_after_1=prior_adapter_norm_after_1[test_idx],
-                                                                    prior_adapter_feed_layer_1=prior_adapter_feed_layer_1[test_idx],
-                                                                    prior_adapter_feed_layer_2=prior_adapter_feed_layer_2[test_idx],
-                                                                    prior_adapter_down_2=prior_adapter_down_2[test_idx],
-                                                                    prior_adapter_up_2=prior_adapter_up_2[test_idx],
-                                                                    prior_adapter_norm_after_2=prior_adapter_norm_after_2[test_idx])
+                                                                    prior_adapter=prior_adapter[test_idx])
 
             with open(os.path.join(metrics_dir,
                                    "epoch_"+str(epoch)+"_metrics_"+str(train_idx)+".pickle"), "wb") \
@@ -1022,20 +936,7 @@ def run(results_dir, args, app_log):
     prior_mbert = [None for _ in train_stream]
     prior_intents = [None for _ in train_stream]
     prior_slots = [None for _ in train_stream]
-    prior_adapter_norm_before = [None for _ in train_stream]
-
-    prior_adapter_down_1 = [None for _ in train_stream]
-    prior_adapter_up_1 = [None for _ in train_stream]
-
-    prior_adapter_norm_after_1 = [None for _ in train_stream]
-
-    prior_adapter_feed_layer_1 = [None for _ in train_stream]
-    prior_adapter_feed_layer_2 = [None for _ in train_stream]
-
-    prior_adapter_down_2 = [None for _ in train_stream]
-    prior_adapter_up_2 = [None for _ in train_stream]
-
-    prior_adapter_norm_after_2 = [None for _ in train_stream]
+    prior_adapter = [None for _ in train_stream]
 
     if args.multi_head_in:
         if args.emb_enc_subtask_spec == ["all"]:
@@ -1048,36 +949,6 @@ def run(results_dir, args, app_log):
                            named_parameters() if name_in_list(args.emb_enc_subtask_spec, k)}
                            for _ in train_stream]
 
-    if args.use_adapters:
-        adapter_size = model_trans.config.hidden_size
-        prior_adapter_norm_before = [{k: v for k, v in nn.LayerNorm(adapter_size).named_parameters()}
-                                     for _ in train_stream]
-
-        prior_adapter_down_1 = [{k: v for k, v in nn.Linear(adapter_size, adapter_size//2).named_parameters()}
-                                for _ in train_stream]
-
-        prior_adapter_up_1 = [{k: v for k, v in nn.Linear(adapter_size//2, adapter_size).named_parameters()}
-                            for _ in train_stream]
-
-        if args.adapter_type == "houslby":
-            prior_adapter_norm_after_1 = [{k: v for k, v in nn.LayerNorm(adapter_size).named_parameters()}
-                                          for _ in train_stream]
-
-            prior_adapter_feed_layer_1 = [{k: v for k, v in nn.Linear(adapter_size, adapter_size).named_parameters()}
-                                          for _ in train_stream]
-
-            prior_adapter_feed_layer_2 = [{k: v for k, v in nn.Linear(adapter_size, adapter_size).named_parameters()}
-                                          for _ in train_stream]
-
-            prior_adapter_down_2 = [{k: v for k, v in nn.Linear(adapter_size, adapter_size//2).named_parameters()}
-                                    for _ in train_stream]
-
-            prior_adapter_up_2 = [{k: v for k, v in nn.Linear(adapter_size//2, adapter_size).named_parameters()}
-                                  for _ in train_stream]
-
-            prior_adapter_norm_after_2 = [{k: v for k, v in nn.LayerNorm(adapter_size).named_parameters()}
-                                          for _ in train_stream]
-
     if args.multi_head_out:
         # TODO change to accommodate different numbers of intents
         if "cil" in args.setup_opt:
@@ -1089,6 +960,11 @@ def run(results_dir, args, app_log):
 
         prior_slots = [{k: v for k, v in nn.Linear(model.trans_model.config.hidden_size, eff_num_slot).
                         named_parameters()} for _ in train_stream]
+
+    if args.use_adapters:
+        Adapter = import_from('contlearnalg.adapter', args.adapter_type)
+        prior_adapter = [{k: v for k, v in Adapter(model_trans.config.hidden_size).named_parameters()}
+                         for _ in train_stream]
 
     if args.setup_opt in ["cll", "multi-incr-cll", "cil", "cil-other", "multi-incr-cil"]:
         """ Continuous Learning Scenarios """
@@ -1105,30 +981,9 @@ def run(results_dir, args, app_log):
         original_intent = copy.deepcopy(model.intent_classifier)
         original_slot = copy.deepcopy(model.slot_classifier)
         if args.use_adapters:
-            original_ada_norm_before = copy.deepcopy(model.adapter.adapter_norm_before)
-            original_ada_down_1 = copy.deepcopy(model.adapter.adapter_down_1[1])
-            original_ada_up_1 = copy.deepcopy(model.adapter.adapter_up_1)
-
-            if args.adapter_type == "houlsby":
-                original_ada_norm_after_1 = copy.deepcopy(model.adapter.adapter_norm_after_1)
-                original_feed_layer_1 = copy.deepcopy(model.adapter.feed_layer_1)
-                original_feed_layer_2 = copy.deepcopy(model.adapter.feed_layer_2)
-
-                original_ada_down_2 = copy.deepcopy(model.adapter.adapter_down_2[1])
-                original_ada_up_2 = copy.deepcopy(model.adapter.adapter_up_2)
-                original_ada_norm_after_2 = copy.deepcopy(model.adapter.adapter_norm_after_2)
+            original_adapter = copy.deepcopy(model.adapter)
         else:
-            original_ada_norm_before = None
-            original_ada_down_1 = None
-            original_ada_up_1 = None
-
-            original_ada_norm_after_1 = None
-            original_feed_layer_1 = None
-            original_feed_layer_2 = None
-
-            original_ada_down_2 = None
-            original_ada_up_2 = None
-            original_ada_norm_after_2 = None
+            original_adapter = None
 
         mean_all_stream = []
         sum_all_stream = []
@@ -1187,49 +1042,9 @@ def run(results_dir, args, app_log):
                 model_dict.update(slot_classifier_dict)
 
             if args.use_adapters:
-                adapter_norm_before_dict = {"adapter.adapter_norm_before."+k: v for k, v in
-                                            original_ada_norm_before.named_parameters()}
-                model_dict.update(adapter_norm_before_dict)
-
-                adapter_down_1_dict = {"adapter.adapter_down_1.1."+k: v for k, v in
-                                       original_ada_down_1.named_parameters()}
-                model_dict.update(adapter_down_1_dict)
-
-                adapter_up_1_dict = {"adapter.adapter_up_1."+k: v for k, v in original_ada_up_1.named_parameters()}
-                model_dict.update(adapter_up_1_dict)
-
-                if args.adapter_type == "houlsby":
-
-                    ##
-                    adapter_norm_after_after_1_dict = {"adapter.adapter_norm_after_1."+k: v for k, v in
-                                                       original_ada_norm_after_1.named_parameters()}
-                    model_dict.update(adapter_norm_after_after_1_dict)
-
-                    ##
-                    adapter_feed_layer_1_dict = {"adapter.feed_layer_1."+k: v for k, v in
-                                                 original_feed_layer_1.named_parameters()}
-                    model_dict.update(adapter_feed_layer_1_dict)
-
-                    ##
-                    adapter_feed_layer_2_dict = {"adapter.feed_layer_2."+k: v for k, v in
-                                                 original_feed_layer_2.named_parameters()}
-                    model_dict.update(adapter_feed_layer_2_dict)
-
-                    ##
-                    adapter_down_2_dict = {"adapter.adapter_down_2.0."+k: v for k, v in
-                                           original_ada_down_2.named_parameters()}
-                    model_dict.update(adapter_down_2_dict)
-
-                    ##
-                    adapter_up_2_dict = {"adapter.adapter_up_2."+k: v for k, v in
-                                           original_ada_up_2.named_parameters()}
-                    model_dict.update(adapter_up_2_dict)
-
-                    ##
-
-                    adapter_norm_after_after_2_dict = {"adapter.adapter_norm_after_2."+k: v for k, v in
-                                                       original_ada_norm_after_2.named_parameters()}
-                    model_dict.update(adapter_norm_after_after_2_dict)
+                adapter_dict = {"adapter."+k: v for k, v in
+                                original_adapter.named_parameters()}
+                model_dict.update(adapter_dict)
 
             if args.multi_head_in or args.multi_head_out or args.use_adapters:
                 model.load_state_dict(model_dict)
@@ -1258,15 +1073,7 @@ def run(results_dir, args, app_log):
                                                                            prior_mbert,  # prior options
                                                                            prior_intents,
                                                                            prior_slots,
-                                                                           prior_adapter_norm_before,
-                                                                           prior_adapter_down_1,
-                                                                           prior_adapter_up_1,
-                                                                           prior_adapter_norm_after_1,
-                                                                           prior_adapter_feed_layer_1,
-                                                                           prior_adapter_feed_layer_2,
-                                                                           prior_adapter_down_2,
-                                                                           prior_adapter_up_2,
-                                                                           prior_adapter_norm_after_2)
+                                                                           prior_adapter)
 
             """ 2. Saving the trained weights of MBERT in each language to be used later on in testing stage"""
 
