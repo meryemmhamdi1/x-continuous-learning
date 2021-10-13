@@ -317,7 +317,6 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
     To process the flat representation of MTOP by taking the top level in the hierarchical representation
     """
     process_egs = []
-    distinct_intents = []
     distinct_domains = []
     distinct_slots = []
     domain_intent_slot_dict = {}
@@ -328,15 +327,15 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
             if domain not in domain_intent_slot_dict:
                 domain_intent_slot_dict.update({domain: {}})
 
-            intent = domain+":"+line[0].split(":")[1]
+            intent_str = domain+":"+line[0].split(":")[1]
+
+            intent = intent_set.index(intent_str)
+
             slot_splits = re.split(',|，', line[1])
             utterance = line[2]
 
-            if intent not in intent_set:
-                intent_set.append(intent)
-
-            if intent not in distinct_intents:
-                distinct_intents.append(intent)
+            if intent_str not in intent_set:
+                intent_set.append(intent_str)
 
             if domain not in distinct_domains:
                 distinct_domains.append(domain)
@@ -364,14 +363,13 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
                     if slot_item["slot"] not in distinct_slots:
                         distinct_slots.append(slot_item["slot"])
 
-                    if intent not in domain_intent_slot_dict[domain]:
-                        domain_intent_slot_dict[domain].update({intent: []})
+                    if intent_str not in domain_intent_slot_dict[domain]:
+                        domain_intent_slot_dict[domain].update({intent_str: []})
 
-                    if slot_item["slot"] not in domain_intent_slot_dict[domain][intent]:
-                        domain_intent_slot_dict[domain][intent].append(slot_item["slot"])
+                    if slot_item["slot"] not in domain_intent_slot_dict[domain][intent_str]:
+                        domain_intent_slot_dict[domain][intent_str].append(slot_item["slot"])
 
                     start = tokenspan["start"]
-                    # if int(start) >= int(slot_item["start"]) and int(start) < int(slot_item["end"]):
                     if int(start) == int(slot_item["start"]):
                         nolabel = False
                         slot_ = "B-" + slot_item["slot"]
@@ -388,9 +386,6 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
                         break
                 if nolabel:
                     slots.append("O")
-
-            #if i<=2:
-            #    print("utterance:", utterance, " slots:", slots, " tokens: ", tokens, " intent:", intent)
 
             assert len(slots) == len(tokens)
 
@@ -409,13 +404,7 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
             sub_slots.append('X')
             assert len(sub_slots) == len(sub_tokens)
 
-            process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots, i))
-
-    #print("++++++++++++++++distinct_intents:", distinct_intents, " len(distinct_intents):", len(distinct_intents))
-    #print("++++++++++++++++distinct_domains:", distinct_domains, " len(distinct_domains):", len(distinct_domains))
-    #print("++++++++++++++++distinct_slots:", distinct_slots, " len(distinct_slots):", len(distinct_slots))
-    #print("++++++++++++++++domain_intent_slot_dict:", domain_intent_slot_dict)
-    #exit(0)
+            process_egs.append([' '.join(tokens), sub_tokens, intent, sub_slots, i])
 
     return process_egs
 
@@ -426,6 +415,7 @@ class Dataset:
                  data_path,
                  setup_option,
                  setup_cillia,
+                 multi_head_out,
                  tokenizer,
                  data_format,
                  use_slots,
@@ -454,6 +444,7 @@ class Dataset:
         self.languages = languages
         self.setup_option = setup_option
         self.setup_cillia = setup_cillia
+        self.multi_head_out = multi_head_out
 
         random.seed(self.seed)
 
@@ -492,29 +483,47 @@ class Dataset:
                     int_task_dev = []
                     int_task_test = []
 
-                    for intent in ordered_intents[i:i+num_intent_tasks]:
-                        int_task_train.extend(ordered_train[intent])
-                        int_task_dev.extend(ordered_dev[intent])
-                        int_task_test.extend(ordered_test[intent])
+                    for j, intent in enumerate(ordered_intents[i:i+num_intent_tasks]):
+                        if self.multi_head_out:
+                            # print(i, j, self.intent_types[intent], " ordered_train[intent]:", len(ordered_train[intent]))
+                            for eg in ordered_train[intent]:
+                                eg[2] = j
+                                int_task_train.append(eg)
 
-                    self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
+                            for eg in ordered_dev[intent]:
+                                eg[2] = j
+                                int_task_dev.append(eg)
+
+                            for eg in ordered_test[intent]:
+                                eg[2] = j
+                                int_task_test.append(eg)
+                        else:
+                            int_task_train.extend(ordered_train[intent])
+                            int_task_dev.extend(ordered_dev[intent])
+                            int_task_test.extend(ordered_test[intent])
+
+                    self.train_stream[lang].append({"intent_list": list(map(lambda x: self.intent_types[x],
+                                                                            ordered_intents[i:i+num_intent_tasks])),
                                                     "examples": AugmentedList(int_task_train,
                                                                               shuffle_between_epoch=True),
                                                     "size": len(int_task_train),
                                                     "lang": lang})
 
-                    self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
+                    self.dev_stream[lang].append({"intent_list": list(map(lambda x: self.intent_types[x],
+                                                                          ordered_intents[i:i+num_intent_tasks])),
                                                   "examples": AugmentedList(int_task_dev,
                                                                             shuffle_between_epoch=True),
                                                   "size": len(int_task_dev),
                                                   "lang": lang})
 
-                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_intent_tasks],
+                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": list(map(lambda x: self.intent_types[x],
+                                                                                         ordered_intents[i:i+num_intent_tasks])),
                                                                  "lang": lang,
                                                                  "examples": AugmentedList(int_task_test),
                                                                  "size": len(int_task_test)}
 
         elif self.setup_option == "cil-other":
+            # TODO adjust other too
             """
             Setup 2: CIL with other option:  incremental version of cil where previous intents' subtasks are added 
             in addition to other labels for subsequent intents' subtasks
@@ -734,6 +743,9 @@ class Dataset:
             for lang in self.languages:
                 ordered_train, ordered_intents = self.partition_per_intent(self.train_set[lang])
 
+                ordered_dev, _ = self.partition_per_intent(self.dev_set[lang],
+                                                           keys=ordered_intents) # using the same intent types order as the train
+
                 ordered_test, _ = self.partition_per_intent(self.test_set[lang],
                                                             keys=ordered_intents) # using the same intent types order as the train
 
@@ -741,13 +753,21 @@ class Dataset:
                 inc_intents_set = []
                 for i in range(num_intent_tasks, len(self.intent_types), num_intent_tasks):
                     inc_intents_set.append(ordered_intents[0:i])
+
+                if i < len(self.intent_types):
+                    inc_intents_set.append(ordered_intents[0:len(self.intent_types)])
                 #
                 inc_train_set = {"-".join(intents_l): [] for intents_l in inc_intents_set}
                 for joined_intents_l in inc_train_set.keys():
-                    for intents_l in joined_intents_l.split("-"):
-                        inc_train_set[joined_intents_l].extend(self.train_set[intents_l])
+                    for j, intent in enumerate(joined_intents_l.split("-")):
+                        if self.multi_head_out:
+                            for eg in ordered_train[intent]:
+                                eg[2] = j
+                                inc_train_set[joined_intents_l].append(eg)
+                        else:
+                            inc_train_set[joined_intents_l].extend(ordered_train[intent])
 
-                self.train_stream[lang] = [{"intent_list": joined_intents_l,
+                self.train_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x], joined_intents_l)),
                                             "lang": lang,
                                             "examples": AugmentedList(inc_train_set[joined_intents_l],
                                                                       shuffle_between_epoch=True),
@@ -755,28 +775,49 @@ class Dataset:
                                            for joined_intents_l in inc_train_set]
 
                 ## Dev
-                inc_dev_set = {"-".join(intents_l): [] for intents_l in intents_l}
+                inc_dev_set = {"-".join(intents_l): [] for intents_l in inc_intents_set}
                 for joined_intents_l in inc_dev_set.keys():
-                    for intents_l in joined_intents_l.split("-"):
-                        inc_dev_set[joined_intents_l].extend(self.dev_set[intents_l])
+                    for j, intent in enumerate(joined_intents_l.split("-")):
+                        if self.multi_head_out:
+                            for eg in ordered_dev[intent]:
+                                eg[2] = j
+                                inc_dev_set[joined_intents_l].append(eg)
+                        else:
+                            inc_dev_set[joined_intents_l].extend(ordered_dev[intent])
 
-                self.dev_stream[lang] = [{"intent_list": joined_intents_l,
+                self.dev_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x], joined_intents_l)),
                                           "lang": lang,
                                           "examples": AugmentedList(inc_dev_set[joined_intents_l]),
                                           "size": len(inc_dev_set[joined_intents_l])}
                                          for joined_intents_l in inc_dev_set]
 
                 ## Test
-                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.intent_types), num_intent_tasks)}
-                for i in range(0, len(self.intent_types), num_intent_tasks):
+                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(len(inc_intents_set))}
+                for i, subtask in enumerate(self.test_stream[lang].keys()):
                     int_task_test = []
-                    for intent in ordered_intents[i:i+num_intent_tasks]:
-                        int_task_test.extend(ordered_test[intent])
+                    for j, intent in enumerate(inc_intents_set[i]):
+                        if self.multi_head_out:
+                            for eg in ordered_test[intent]:
+                                eg[2] = j
+                                int_task_test.append(eg)
+                        else:
+                            int_task_test.extend(ordered_test[intent])
 
-                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_intent_tasks],
-                                                                 "lang": lang,
-                                                                 "examples": AugmentedList(int_task_test),
-                                                                 "size": len(self.test_set[lang])}
+                # for i in range(0, len(self.intent_types), num_intent_tasks):
+                #     int_task_test = []
+                #     for j, intent in enumerate(ordered_intents[i:i+num_intent_tasks]):
+                #         if self.multi_head_out:
+                #             for eg in ordered_test[intent]:
+                #                 eg[2] = j
+                #                 int_task_test.append()
+                #         else:
+                #             int_task_test.extend(ordered_test[intent])
+
+                    self.test_stream[lang][subtask] = {"intent_list": list(map(lambda x: self.intent_types[x],
+                                                                               inc_intents_set[i])),
+                                                       "lang": lang,
+                                                       "examples": AugmentedList(int_task_test),
+                                                       "size": len(int_task_test)}
 
         elif self.setup_option == "multi-incr-cll":
             """
@@ -871,11 +912,12 @@ class Dataset:
 
         process_egs_shuffled = random.sample(process_egs,
                                              k=len(process_egs))
+        print(lang, split, len(process_egs))
 
         return process_egs_shuffled
 
     def partition_per_intent(self, processed_egs, keys=None):
-        intent_dict = {intent: [] for intent in self.intent_types}
+        intent_dict = {intent: [] for intent in range(len(self.intent_types))}
         for eg in processed_egs:
             intent_dict[eg[2]].append(eg)
 
@@ -934,8 +976,8 @@ class Dataset:
         examples = data_split.next_items(batch_size)
 
         max_sent_len = 0
-        input_ids, lengths, intent_labels, slot_labels, token_type_ids, attention_mask, input_masks, \
-        input_texts, input_identifiers = [], [], [], [], [], [], [], [], []
+        input_ids, lengths, intent_labels, slot_labels, token_type_ids, input_masks, \
+            input_texts, input_identifiers = [], [], [], [], [], [], [], []
 
         for example in examples:
             input_texts.append(example[0])
@@ -948,10 +990,7 @@ class Dataset:
 
             lengths.append(len(cur_input_ids))
 
-            if example[2] == "OTHER":
-                intent_labels.append(len(self.intent_types))
-            else:
-                intent_labels.append(self.intent_types.index(example[2]))
+            intent_labels.append(example[2])
 
             if self.use_slots:
                 assert len(cur_input_ids) == len(example[3])
@@ -968,7 +1007,7 @@ class Dataset:
             input_ids[i] += [0] * (max_sent_len - len(input_ids[i]))
 
             token_type_ids.append([1 for _ in input_ids[i]])
-            attention_mask.append([int(x > 0) for x in input_ids[i]])
+            #attention_mask.append([int(x > 0) for x in input_ids[i]])
             if self.use_slots:
                 slot_labels[i] += [0] * (max_sent_len - len(slot_labels[i]))
 
@@ -979,6 +1018,6 @@ class Dataset:
         intent_labels = LongTensor(intent_labels)
         token_type_ids = LongTensor(token_type_ids)
         input_masks = LongTensor(input_masks)
-        attention_mask = LongTensor(attention_mask)
+        #attention_mask = LongTensor(attention_mask)
 
-        return (input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, input_texts), examples
+        return (input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts), examples
