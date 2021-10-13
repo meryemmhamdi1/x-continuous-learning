@@ -104,8 +104,8 @@ helpFunction()
                      * slot: regularize or replay on the slot prediction head only."
 
     echo -e "\t-p ADAPTER_TYPE: Which adapter architecture:\
-                     * houlsby: resembling the original adapter architecture\
-                     * madx: just one bottleneck block."
+                     * Houlsby: resembling the original adapter architecture\
+                     * MADX: just one bottleneck block."
 
    exit 1 # Exit script after printing help
 }
@@ -146,7 +146,7 @@ FREEZE_TYPE=${12:-"none"}
 FREEZE_FIRST=${13:-"yes"}
 SEED=${14:-42}
 CONT_COMP=${15:-"trans intent slot"}
-ADAPTER_TYPE=${16:-"madx"}
+ADAPTER_TYPE=${16:-"MADX"}
 
 
 ## Base Model Options
