@@ -5,8 +5,8 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.utils.data
-from downstreammodels.crf import CRFLayer
-from utils import read_saved_pickle
+from basemodels.crf import CRFLayer
+from utils import read_saved_pickle, name_in_list
 
 
 def variable(t: torch.Tensor, use_cuda=True, **kwargs):
@@ -79,37 +79,41 @@ class EWC(object):
                  device,
                  checkpoint_dir,
                  use_online,
-                 gamma_ewc):
+                 gamma_ewc,
+                 cont_comp):
 
         self.device = device
         self.use_online = use_online
         self.checkpoint_dir = checkpoint_dir
         self.gamma_ewc = gamma_ewc
+        self.cont_comp = cont_comp
 
     def compute_online_fisher(self, i_task, model):
-        fisher_param = {n: 0 for n, p in model.named_parameters() if p.requires_grad}
+        fisher_param = {n: 0 for n, p in model.named_parameters() if p.requires_grad and name_in_list(self.cont_comp, n)}
         for fj in range(1, i_task):
             grads = read_saved_pickle(self.checkpoint_dir,
                                       i_task-fj,
                                       "grads")
 
             for n, p in model.named_parameters():
-                grad_k = grads[n]
-                fisher_param[n] += (self.gamma_ewc ** (fj-1)) * grad_k
-                del grad_k
+                if name_in_list(self.cont_comp, n):
+                    grad_k = grads[n]
+                    fisher_param[n] += (self.gamma_ewc ** (fj-1)) * grad_k
+                    del grad_k
 
         return fisher_param
 
     def penalty(self, i_task, model):
         reg_term = 0
         if self.use_online:
-            fisher_param = self.compute_online_fisher(i_task)
+            fisher_param = self.compute_online_fisher(i_task, model)
             params = read_saved_pickle(self.checkpoint_dir, i_task-1, "params")
             for n, p in model.named_parameters():
-                p_k = params[n]
-                _reg_term = fisher_param[n] * (p - p_k) ** 2
-                del p_k
-                reg_term += _reg_term.sum()
+                if name_in_list(self.cont_comp, n):
+                    p_k = params[n]
+                    _reg_term = fisher_param[n] * (p - p_k) ** 2
+                    del p_k
+                    reg_term += _reg_term.sum()
         else:
             for k in range(0, i_task):
                 fisher_param = read_saved_pickle(self.checkpoint_dir, k, "grads")
@@ -117,12 +121,13 @@ class EWC(object):
                 params = read_saved_pickle(self.checkpoint_dir, k, "params")
 
                 for n, p in model.named_parameters():
-                    torch.cuda.empty_cache()
-                    if p.grad is not None and p.requires_grad:
-                        p_k = params[n]
-                        fisher_param_k = fisher_param[n]
-                        _reg_term = fisher_param_k * (p - p_k) ** 2
-                        del fisher_param_k
-                        del p_k
-                        reg_term += _reg_term.sum()
+                    if name_in_list(self.cont_comp, n):
+                        torch.cuda.empty_cache()
+                        if p.grad is not None and p.requires_grad:
+                            p_k = params[n]
+                            fisher_param_k = fisher_param[n]
+                            _reg_term = fisher_param_k * (p - p_k) ** 2
+                            del fisher_param_k
+                            del p_k
+                            reg_term += _reg_term.sum()
         return reg_term

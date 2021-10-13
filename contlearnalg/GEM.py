@@ -3,14 +3,14 @@ import torch
 import quadprog
 from qpth.qp import QPFunction
 from torch.autograd import Function, Variable
-from utils import read_saved_pickle, format_store_grads
+from utils import read_saved_pickle, format_store_grads, name_in_list
 import random
 
 """ Auxiliary functions copied from Copyright 2017-present, Facebook, Inc. https://github.com/
 facebookresearch/GradientEpisodicMemory """
 
 
-def overwrite_grad(pp, newgrad, grad_dims):
+def overwrite_grad(pp, newgrad, grad_dims, cont_comp):
     """
         This is used to overwrite the gradients with a new gradient
         vector, whenever violations occur.
@@ -20,7 +20,7 @@ def overwrite_grad(pp, newgrad, grad_dims):
     """
     cnt = 0
     for n, p in pp:
-        if p.grad is not None:
+        if p.grad is not None and name_in_list(cont_comp, n):
             beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
             en = sum(grad_dims[:cnt + 1])
             this_grad = newgrad[beg: en].contiguous().view(
@@ -100,7 +100,8 @@ class GEM(object):
                  use_slots,
                  use_a_gem,
                  a_gem_n,
-                 checkpoint_dir):
+                 checkpoint_dir,
+                 cont_comp):
         """
         Implements GEM and A-GEM
         :param model:
@@ -113,13 +114,13 @@ class GEM(object):
         self.use_a_gem = use_a_gem
         self.a_gem_n = a_gem_n
         self.checkpoint_dir = checkpoint_dir
+        self.cont_comp = cont_comp
 
     def forward_pass(self, model, rand_task):
         model.zero_grad()
-        batch, _ = self.dataset.next_batch(1, self.dataset.train_stream[rand_task]["stream"])
+        batch, _ = self.dataset.next_batch(1, self.dataset.train_stream[rand_task]["examples"])
 
-        input_ids, lengths, token_type_ids, input_masks, attention_mask, intent_labels, slot_labels, \
-            input_texts = batch
+        input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts = batch
 
         input_ids = input_ids.cuda()
         lengths = lengths.cuda()
@@ -130,6 +131,7 @@ class GEM(object):
         if self.use_slots:
             logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
                                                                                input_masks=input_masks,
+                                                                               train_idx=0, # TODO dummy
                                                                                lengths=lengths,
                                                                                intent_labels=intent_labels,
                                                                                slot_labels=slot_labels)
@@ -137,6 +139,7 @@ class GEM(object):
         else:
             logits_intents, intent_loss, loss = model(input_ids=input_ids,
                                                       input_masks=input_masks,
+                                                      train_idx=0, # TODO dummy
                                                       lengths=lengths,
                                                       intent_labels=intent_labels)
 
@@ -151,8 +154,9 @@ class GEM(object):
                 self.forward_pass(model, rand_task)
 
             # Formatting g_{ref}
-            grads_ref = format_store_grads(model.named_parameters(),
-                                           grad_dims,
+            grads_ref = format_store_grads(pp=model.named_parameters(),
+                                           grad_dims=grad_dims,
+                                           cont_comp=self.cont_comp,
                                            store=False)
 
             # Loading g
@@ -171,7 +175,8 @@ class GEM(object):
 
                 overwrite_grad(model.named_parameters(),  # this is overwritten by the function
                                new_grad,   # these are the new gradients
-                               grad_dims)
+                               grad_dims,
+                               self.cont_comp)
         else:
             ## GEM
             for old_task_i in range(i_task):  # for all old tasks before current task i
@@ -181,10 +186,12 @@ class GEM(object):
                     self.forward_pass(model, old_task_i)
 
                 # Store the gradients for the current step
-                format_store_grads(model.named_parameters(),
-                                   grad_dims,
-                                   self.checkpoint_dir,
-                                   old_task_i)
+                format_store_grads(pp=model.named_parameters(),
+                                   grad_dims=grad_dims,
+                                   cont_comp=self.cont_comp,
+                                   checkpoint_dir=self.checkpoint_dir,
+                                   tid=old_task_i,
+                                   store=True)
 
                 # Solve the dual of the quadratic equation # TODO double check if this is done only once at the end of all
                 indx = torch.LongTensor(list(range(i_task))).cuda() if torch.cuda.device_count() > 0 \
@@ -215,9 +222,12 @@ class GEM(object):
                     # Update the named_parameters accordingly
                     overwrite_grad(model.named_parameters(),
                                    grads,
-                                   grad_dims)
+                                   grad_dims,
+                                   self.cont_comp)
 
-                    format_store_grads(grads,
-                                       grad_dims,
-                                       i_task,
-                                       self.checkpoint_dir)  # storing after changing
+                    format_store_grads(pp=grads,
+                                       grad_dims=grad_dims,
+                                       cont_comp=self.cont_comp,
+                                       checkpoint_dir=self.checkpoint_dir,
+                                       tid=i_task,
+                                       store=True)  # storing after changing

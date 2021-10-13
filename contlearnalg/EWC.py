@@ -5,7 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.utils.data
-from downstreammodels.crf import CRFLayer
+from basemodels.crf import CRFLayer
 
 
 def variable(t: torch.Tensor, use_cuda=True, **kwargs):
