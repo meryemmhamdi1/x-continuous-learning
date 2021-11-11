@@ -18,10 +18,16 @@ class CRFLayer(nn.Module):
         super(CRFLayer, self).__init__()
 
         self.num_tags = num_tags
-        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True).cuda()
-        self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()
-        self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()
         self.device = device
+
+        if self.device == torch.device("cpu"):
+            self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True)
+            self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True)
+            self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True)
+        else:
+            self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True).cuda()
+            self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()
+            self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True).cuda()
 
         nn.init.xavier_normal_(self.transitions)
         self.params = {"transitions": self.transitions,
