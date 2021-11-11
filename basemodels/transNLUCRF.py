@@ -2,29 +2,8 @@ import torch.nn as nn
 import torch
 from basemodels.crf import CRFLayer
 from utils import import_from
-
-SLOT_PAD = 0
-
-
-def _make_mask(lengths):
-    bsz = len(lengths)
-    max_len = torch.max(lengths)
-    mask = torch.LongTensor(bsz, max_len).fill_(1)
-    for i in range(bsz):
-        length = lengths[i]
-        mask[i, length:max_len] = 0
-    return mask
-
-
-def _pad_label(lengths, y):
-    bsz = len(lengths)
-    max_len = torch.max(lengths)
-    padded_y = torch.LongTensor(bsz, max_len).fill_(SLOT_PAD)
-    for i in range(bsz):
-        y_i = y[i]
-        padded_y[i, 0:] = y_i
-
-    return padded_y
+from consts import SLOT_PAD
+# from transformers import AdapterConfig
 
 
 class TransNLUCRF(nn.Module):
@@ -142,28 +121,25 @@ class TransNLUCRF(nn.Module):
             if slot_labels is None:
                 return logits_intents, intent_loss, loss
 
-            return logits_intents, logits_slots, intent_loss, slot_loss, loss
+            return logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output
         else:
             if self.use_slots:
-                return intent_loss, slot_loss, loss
+                return intent_loss, slot_loss, loss, pooled_output
 
-            return intent_loss, loss
+            return intent_loss, loss, pooled_output
 
-    def crf_loss(self, inputs, lengths, y):
-        """ create crf loss
-        Input:
-            inputs: output of SlotPredictor (bsz, seq_len, num_slot)
-            lengths: lengths of x (bsz, )
-            y: label of slot value (bsz, seq_len)
-        Ouput:
-            crf_loss: loss of crf
-        """
-        padded_y = _pad_label(lengths, y)
-        mask = _make_mask(lengths)
+    def get_embeddings(self, input_ids, input_masks):
+        self.trans_model.eval()
+        self.crf_layer.eval()
+        with torch.no_grad():
+            lm_output = self.trans_model(input_ids=input_ids,
+                                         attention_mask=input_masks)
 
-        crf_loss = self.crf_layer.loss(inputs, padded_y)
+            cls_token = lm_output[0][:, 0, :]
 
-        return crf_loss
+        pooled_output = self.dropout(cls_token)
+
+        return pooled_output
 
     def crf_decode(self, inputs, lengths):
         """ crf decode
