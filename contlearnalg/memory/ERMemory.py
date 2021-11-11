@@ -1,9 +1,8 @@
 import random
-from consts import intent_types, slot_types
+from consts import INTENT_TYPES, SLOT_TYPES, EPSILON
 import numpy as np
 import torch
-# from utils import euclid_dist
-from consts import EPSILON
+
 
 def euclid_dist(x1, x2):
     """
@@ -14,12 +13,6 @@ def euclid_dist(x1, x2):
     """
     # return torch.mean(torch.cdist(x1, x2))
     return torch.sqrt(torch.sum((x1-x2)**2))
-
-
-"""
-    memory += train_examples.next_items(int(train_subtask_lang["size"]*args.old_task_prop))
-    memory_aug_list = AugmentedList(memory, shuffle_between_epoch=True)
-"""
 
 
 def init_var(num_tasks, num_intents, init_val):
@@ -45,8 +38,9 @@ class Example(object):
                  y_slot,
                  distance,
                  task_id):
-        self.embed = embed  ## key
-        ## Values
+        # Key
+        self.embed = embed
+        # Values
         self.x = x  # dictionary of input_ids, token_type_ids, input_masks, lengths, input_texts
         self.y_intent = y_intent  # intent_labels
         self.y_slot = y_slot  # slot_labels
@@ -79,8 +73,8 @@ class Example(object):
         self.weight = weight
 
     def __str__(self):
-        return self.x["input_texts"]#, " Intent:", intent_types[self.y_intent.squeeze().item()],\
-               #" Slots:", [slot_types[slot] for slot in self.y_slot.squeeze()]
+        return self.x["input_texts"], " Intent:", INTENT_TYPES[self.y_intent.squeeze().item()],\
+               " Slots:", [SLOT_TYPES[slot] for slot in self.y_slot.squeeze()]
 
 
 class Memory(object):
@@ -105,13 +99,13 @@ class Memory(object):
         self.storing_type = storing_type
         self.sampling_type = sampling_type
 
-        num_intents = 1 if self.storing_type == "reservoir" else len(intent_types)
+        num_intents = 1 if self.storing_type == "reservoir" else len(INTENT_TYPES)
         self.memory = init_var(total_num_tasks, num_intents, [])
         self.j = init_var(total_num_tasks, num_intents,  0)
         self.cluster_count = init_var(total_num_tasks, num_intents,  0)
         self.cur_sz = init_var(total_num_tasks, num_intents, 0)
 
-        self.centroids = {intent: torch.zeros(embed_dim) for intent in range(len(intent_types))}
+        self.centroids = {intent: torch.zeros(embed_dim) for intent in range(len(INTENT_TYPES))}
         # TODO: maybe have those already computed in the first task but maybe the memory is only used in the second task
 
         # TODO: add clusters per intents and slots at the same time
@@ -147,21 +141,17 @@ class Memory(object):
                 key = 0
             elif self.storing_type == "ring":
                 key = intent_labels[i].squeeze().item()
-                max_size_key = max_size_key // len(intent_types)
+                max_size_key = max_size_key // len(INTENT_TYPES)
                 seen_intents.append(key)
             else:  # k-means":
                 distances = torch.stack([euclid_dist(embed, self.centroids[intent])
                                          for intent in self.centroids])
 
                 key = torch.argmin(distances).squeeze().item()
-                max_size_key = max_size_key // len(intent_types)
+                max_size_key = max_size_key // len(INTENT_TYPES)
 
             distance = euclid_dist(embed, self.centroids[key])
 
-            # if task == 2:
-            #     print(x["input_texts"], y_intent, key, len(self.memory[task][key]), max_size_key)
-            # print("len(self.memory[task][key]):", len(self.memory[task][key]),
-            #       " max_size_key:", max_size_key)
             if len(self.memory[task][key]) < max_size_key:
                 self.cur_sz[task][key] += 1
                 if self.storing_type == "k-means":
@@ -178,8 +168,6 @@ class Memory(object):
             else:
                 if self.storing_type != "k-means":
                     # pick a number at random to be replaced by the current task
-                    # print("self.cur_sz[task][key]+self.j[task][key]:", self.cur_sz[task][key]+self.j[task][key],
-                    #       "self.memory:", self.memory)
                     k = random.sample(list(range(0, self.cur_sz[task][key]+self.j[task][key])), k=1)[0]
                     if k < max_size_key:
                         self.memory[task][key][k] = Example(embed=embed,
@@ -200,8 +188,6 @@ class Memory(object):
                                                             distance=distance,
                                                             task_id=task)
             self.j[task][key] += 1
-
-        # print("task:", task, " seen_intents:", seen_intents, " max_size_key:", max_size_key)
 
     def sample(self, task_num, sample_sz):
         """
@@ -231,7 +217,6 @@ class Memory(object):
                 total_size += self.cur_sz[task_num][intent]
                 size_task += self.cur_sz[task_num][intent]
 
-            print("task_num:", task_num, " size_task:", size_task)
         return total_size
 
     def update_centroids(self, embeds, intent_labels):
@@ -250,6 +235,10 @@ class Memory(object):
             self.centroids[intent] = torch.mean(torch.stack(new_intent_list), 0)
 
     def __str__(self):
+        """
+        Return the string format of ERMemory
+        :return:
+        """
         str_format = {task_num: [] for task_num in self.memory}
         for task_num in self.memory:
             for intent in self.memory[task_num]:

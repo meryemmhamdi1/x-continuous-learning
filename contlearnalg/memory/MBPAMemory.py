@@ -1,8 +1,6 @@
 import torch
-import random
-
-from utils import euclid_dist
 from contlearnalg.memory.ERMemory import Memory as ERMemory
+from contlearnalg.memory.ERMemory import euclid_dist
 
 
 class Memory(ERMemory):
@@ -16,7 +14,6 @@ class Memory(ERMemory):
         """
         Fixed size but dynamically-updated as it acts as a circular buffer:
             when it is full, the oldest data is overwritten first
-            Either fixed or trainable key network
             MbPA: samples k-nearest neighbours examples
             MbPA++: uses randomly sampled examples
         :param max_mem_sz: the maximum size of the memory
@@ -42,29 +39,28 @@ class Memory(ERMemory):
         """
         distances = []
         examples = []
-        for task_num in range(task):  # sample from all previously seen TASKS before
+        for task_num in range(task):  # sample from all previously seen TASKS so far
             for intent in self.memory[task_num]:
                 for eg in self.memory[task_num][intent]:
-                    # For each example in the memory, find the distance with the query
+                    # For each example in the memory, find the distance with the query example
                     examples.append(eg)
                     distances.append(euclid_dist(eg.embed, q.embed))
 
         distances = torch.stack(distances)
-
         neighbour_keys = torch.topk(distances, k, largest=False)
-        print(neighbour_keys[:2])
 
         # neighbours = examples.index_select(0, neighbour_keys)
-        neighbours = [examples[key.squeeze().item()] for key in neighbour_keys]
+        neighbours = [examples[key.squeeze().item()] for key in neighbour_keys[1]]
 
         return neighbours
 
     def sample_for_q(self, q, task, sample_sz):
         """
-         Use randomly or k-nearest neighbours sampled examples up to a particular task for local adaptation
-        :param q: the testing example (content, embeddings)
-        :param task: the current task till when we have trained so far
-        :param sample_sz: the number of examples to be randomly sampled or the number of nearest neighbours
+         Sampling randomly or using k-nearest neighbours examples up to a particular task used later on
+         for local adaptation
+        :param q: the query example (Example object) used specifically in nearest neighbours
+        :param task: the current task up to which we have trained so far
+        :param sample_sz: the number of examples to be randomly sampled or the number of nearest neighbours to sampled
         :return:
         """
         if self.sampling_type == "random":
@@ -75,5 +71,3 @@ class Memory(ERMemory):
             sampled = self.get_neighbours(q, task, sample_sz)
 
         return sampled
-        # TODO get_neighbours with the batch format for forward pass in the main
-        # TODO normalize the format of the memory
