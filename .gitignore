@@ -137,8 +137,7 @@ scripts/paths*
 sanity_checks
 sanity_checks/*
 dev_main.py
-freeze_layers.py
-
+tests/*
 
 # Results
 results_analysis/*
