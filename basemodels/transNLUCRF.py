@@ -1,12 +1,13 @@
 import torch.nn as nn
 import torch
+from basemodels.transNLU import TransNLU
 from basemodels.crf import CRFLayer
 from utils import import_from
 from consts import SLOT_PAD
 # from transformers import AdapterConfig
 
 
-class TransNLUCRF(nn.Module):
+class TransNLUCRF(TransNLU):
     def __init__(self,
                  args,
                  trans_model,
@@ -16,7 +17,10 @@ class TransNLUCRF(nn.Module):
                  device,
                  num_slots=0):
 
-        super(TransNLUCRF, self).__init__()
+        super(TransNLUCRF, self).__init__(trans_model,
+                                          num_intents,
+                                          args.use_slots,
+                                          num_slots)
 
         self.args = args
         self.use_multi_head_in = args.multi_head_in
@@ -33,10 +37,6 @@ class TransNLUCRF(nn.Module):
         self.eff_num_intents_task = eff_num_intents_task
 
         self.device = device
-
-        # model_name, tokenizer_alias, model_trans_alias, _ = MODELS_dict[args.trans_model]
-        #
-        # self.trans_model = model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name))
 
         self.use_slots = args.use_slots
         self.num_slots = num_slots
@@ -69,6 +69,16 @@ class TransNLUCRF(nn.Module):
                 lengths,
                 intent_labels=None,
                 slot_labels=None):
+        """
+        Forward pass
+        :param input_ids:
+        :param input_masks:
+        :param train_idx:
+        :param lengths:
+        :param intent_labels:
+        :param slot_labels:
+        :return:
+        """
 
         if self.training:
             self.trans_model.train()
@@ -128,18 +138,6 @@ class TransNLUCRF(nn.Module):
 
             return intent_loss, loss, pooled_output
 
-    def get_embeddings(self, input_ids, input_masks):
-        self.trans_model.eval()
-        self.crf_layer.eval()
-        with torch.no_grad():
-            lm_output = self.trans_model(input_ids=input_ids,
-                                         attention_mask=input_masks)
-
-            cls_token = lm_output[0][:, 0, :]
-
-        pooled_output = self.dropout(cls_token)
-
-        return pooled_output
 
     def crf_decode(self, inputs, lengths):
         """ crf decode
