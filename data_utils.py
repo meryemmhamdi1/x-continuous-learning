@@ -6,6 +6,9 @@ from torch import LongTensor
 import re
 import random
 import os
+import ast
+from torch.utils.data import Dataset
+
 
 # detect pattern
 # detect <TIME>
@@ -409,13 +412,14 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
     return process_egs
 
 
-class Dataset:
+class NLUDataset(Dataset):
     """  """
     def __init__(self,
                  data_path,
                  setup_option,
                  setup_cillia,
                  multi_head_out,
+                 use_mono,
                  tokenizer,
                  data_format,
                  use_slots,
@@ -423,11 +427,12 @@ class Dataset:
                  languages,
                  order_class,
                  order_lang,
-                 order_lang_lst,
+                 order_lst,
                  num_intent_tasks,
                  num_lang_tasks,
                  intent_types=[],
                  slot_types=["O", "X"]):
+
         self.tokenizer = tokenizer
         self.use_slots = use_slots
         self.data_format = data_format
@@ -438,13 +443,16 @@ class Dataset:
         self.data_path = data_path
 
         self.seed = seed
+
         self.order_class = order_class
         self.order_lang = order_lang
-        self.order_lang_lst = order_lang_lst
+        self.order_lst = order_lst.split("_")
+
         self.languages = languages
         self.setup_option = setup_option
         self.setup_cillia = setup_cillia
         self.multi_head_out = multi_head_out
+        self.use_mono = use_mono
 
         random.seed(self.seed)
 
@@ -453,8 +461,12 @@ class Dataset:
         self.test_set = {lang: [] for lang in languages}
 
         for lang in self.languages:
+            print("----------lang:", lang)
+            print("Reading train split ... ")
             self.train_set[lang] = self.read_split(lang, "train")
+            print("Reading dev split ... ")
             self.dev_set[lang] = self.read_split(lang, "eval")
+            print("Reading test split ... ")
             self.test_set[lang] = self.read_split(lang, "test")
 
         if self.setup_option == "cil":
@@ -484,7 +496,7 @@ class Dataset:
                     int_task_test = []
 
                     for j, intent in enumerate(ordered_intents[i:i+num_intent_tasks]):
-                        if self.multi_head_out:
+                        if self.multi_head_out or self.use_mono:
                             # print(i, j, self.intent_types[intent], " ordered_train[intent]:", len(ordered_train[intent]))
                             for eg in ordered_train[intent]:
                                 eg[2] = j
@@ -756,10 +768,11 @@ class Dataset:
 
                 if i < len(self.intent_types):
                     inc_intents_set.append(ordered_intents[0:len(self.intent_types)])
-                #
-                inc_train_set = {"-".join(intents_l): [] for intents_l in inc_intents_set}
+
+                print("inc_intents_set:", len(inc_intents_set))
+                inc_train_set = {str(intents_l): [] for intents_l in inc_intents_set}
                 for joined_intents_l in inc_train_set.keys():
-                    for j, intent in enumerate(joined_intents_l.split("-")):
+                    for j, intent in enumerate(ast.literal_eval(joined_intents_l)):
                         if self.multi_head_out:
                             for eg in ordered_train[intent]:
                                 eg[2] = j
@@ -767,7 +780,8 @@ class Dataset:
                         else:
                             inc_train_set[joined_intents_l].extend(ordered_train[intent])
 
-                self.train_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x], joined_intents_l)),
+                self.train_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x],
+                                                                    ast.literal_eval(joined_intents_l))),
                                             "lang": lang,
                                             "examples": AugmentedList(inc_train_set[joined_intents_l],
                                                                       shuffle_between_epoch=True),
@@ -775,9 +789,9 @@ class Dataset:
                                            for joined_intents_l in inc_train_set]
 
                 ## Dev
-                inc_dev_set = {"-".join(intents_l): [] for intents_l in inc_intents_set}
+                inc_dev_set = {str(intents_l): [] for intents_l in inc_intents_set}
                 for joined_intents_l in inc_dev_set.keys():
-                    for j, intent in enumerate(joined_intents_l.split("-")):
+                    for j, intent in enumerate(ast.literal_eval(joined_intents_l)):
                         if self.multi_head_out:
                             for eg in ordered_dev[intent]:
                                 eg[2] = j
@@ -785,7 +799,8 @@ class Dataset:
                         else:
                             inc_dev_set[joined_intents_l].extend(ordered_dev[intent])
 
-                self.dev_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x], joined_intents_l)),
+                self.dev_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x],
+                                                                  ast.literal_eval(joined_intents_l))),
                                           "lang": lang,
                                           "examples": AugmentedList(inc_dev_set[joined_intents_l]),
                                           "size": len(inc_dev_set[joined_intents_l])}
@@ -912,7 +927,6 @@ class Dataset:
 
         process_egs_shuffled = random.sample(process_egs,
                                              k=len(process_egs))
-        print(lang, split, len(process_egs))
 
         return process_egs_shuffled
 
@@ -925,9 +939,11 @@ class Dataset:
             return {k: intent_dict[k] for k in keys}, keys
 
         if self.order_class == 2:
-            keys = intent_dict.keys()
+            keys = list(intent_dict.keys())
+            print(keys)
             random.shuffle(keys)
         else:
+            # if len(self.order_lst) == 0 or "en" in self.order_lst:
             reverse_flag = False
             if self.order_class == 0:
                 reverse_flag = True
@@ -952,7 +968,7 @@ class Dataset:
             ordered_langs = train_set.keys()
             random.shuffle(ordered_langs)
         else:
-            if len(self.order_lang_lst) == 0:
+            if len("".join(self.order_lst)) == 0:
                 reverse_flag = False
                 if self.order_lang == 0:# decreasing frequency
                     reverse_flag = True
@@ -961,7 +977,7 @@ class Dataset:
                                        key=lambda lang: len(train_set[lang]),
                                        reverse=reverse_flag)
             else:
-                ordered_langs = self.order_lang_lst
+                ordered_langs = self.order_lst
 
             print("ordered_langs:", ordered_langs)
         return ordered_langs
