@@ -1,45 +1,38 @@
 # From the project
 from data_utils import *
+from parser_args import *
 from transformers_config import MODELS_dict
 from basemodels.transNLUCRF import TransNLUCRF
-from consts import intent_types, slot_types
+from consts import INTENT_TYPES, SLOT_TYPES
 from contlearnalg.EWC_grads import EWC
 from contlearnalg.GEM import GEM
-from utils import format_store_grads, name_in_list, logger, import_from
+from contlearnalg.MbPA import MBPA
+from utils import variable, format_store_grads, name_in_list, logger, import_from, evaluate_report, set_optimizer
 
 # Torch
 import torch
 from torch import nn
-from torch.optim import Adam
-from torch.autograd import Variable
 import torch.utils.data
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import StepLR as SchedulerLR
 
-# Metrics
-from sklearn.metrics import f1_score, precision_score, recall_score
+from transformers import set_seed
 
 # Other Python Modules
 import gc
 import sys
 import logstats
 import os
+import importlib
 import pickle
 import numpy as np
-import copy
 import argparse
+import copy
 from copy import deepcopy
 from tqdm import tqdm
 
 # GPU/CPU
 gpus_list = list(range(torch.cuda.device_count()))
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def variable(t: torch.Tensor, use_cuda=True, **kwargs):
-    if torch.cuda.is_available() and use_cuda:
-        t = t.cuda()
-    return Variable(t, **kwargs)
 
 
 def compute_change(mbert1, mbert2,
@@ -131,11 +124,13 @@ def compute_change(mbert1, mbert2,
 
 
 def train(optimizer,
+          intent_embeddings,
           model,
           grad_dims,
           cont_learn_alg,
           dataset,
           train_examples,
+          memory,
           train_examples_size,
           writer,
           epoch,
@@ -152,30 +147,38 @@ def train(optimizer,
 
     input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts = batch
 
-    input_ids = input_ids.cuda()
-    lengths = lengths.cuda()
-    token_type_ids = token_type_ids.cuda() # this is not needed at all
-    input_masks = input_masks.cuda() # TODO compare when you use this versus when you don't
-    intent_labels = intent_labels.cuda()
-    slot_labels = slot_labels.cuda()
+    if device != torch.device("cpu"):
+        input_ids = input_ids.cuda()
+        lengths = lengths.cuda()
+        token_type_ids = token_type_ids.cuda()  # this is not needed at all
+        input_masks = input_masks.cuda()  # TODO compare when you use this versus when you don't
+        intent_labels = intent_labels.cuda()
+        slot_labels = slot_labels.cuda()
+
+    params = None
+    saved_grads = None
 
     if args.use_slots:
-        logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
-                                                                           input_masks=input_masks,
-                                                                           train_idx=i_task,
-                                                                           lengths=lengths,
-                                                                           intent_labels=intent_labels,
-                                                                           slot_labels=slot_labels)
+        logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output = model(input_ids=input_ids,
+                                                                                          input_masks=input_masks,
+                                                                                          train_idx=i_task,
+                                                                                          lengths=lengths,
+                                                                                          intent_labels=intent_labels,
+                                                                                          slot_labels=slot_labels)
 
         writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
         writer.add_scalar('train_slot_loss_'+str(i_task), slot_loss.mean(), num_steps*epoch)
     else:
-        logits_intents, intent_loss, loss = model(input_ids=input_ids,
-                                                  input_masks=input_masks,
-                                                  train_idx=i_task,
-                                                  lengths=lengths,
-                                                  intent_labels=intent_labels)
+        logits_intents, intent_loss, loss, pooled_output = model(input_ids=input_ids,
+                                                                 input_masks=input_masks,
+                                                                 train_idx=i_task,
+                                                                 lengths=lengths,
+                                                                 intent_labels=intent_labels)
+
         writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
+
+    if args.cont_learn_alg in ["er", "mbpa"]:
+        memory.update(batch, pooled_output, i_task)
 
     if args.cont_learn_alg == "ewc":
         if i_task > 0:
@@ -200,7 +203,6 @@ def train(optimizer,
         saved_grads = {n: p for n, p in saved_grads.items()}
 
     elif args.cont_learn_alg == "gem":
-
         loss = loss.mean()
         loss.backward()
         format_store_grads(pp=model.named_parameters(),
@@ -209,6 +211,8 @@ def train(optimizer,
                            checkpoint_dir=checkpoint_dir,
                            tid=i_task,
                            store=True)  # storing for the current task
+
+        print("grad_dims: ", grad_dims)
         if i_task > 0:
             cont_learn_alg.run(i_task,
                                sample_sizes,
@@ -216,6 +220,58 @@ def train(optimizer,
                                grad_dims)
 
         params = {n: p for n, p in model.named_parameters() if p.requires_grad}
+        saved_grads = None
+
+    elif args.cont_learn_alg == "er":
+        # Backward pass over the MAIN training
+        loss = loss.mean()
+        loss.backward()
+
+        if i_task > 0:
+            # memory training is interleaved with the main training so that the process doesn't overfit to the memory
+            if num_steps % 10 == 0:
+                # Randomly sample from the memory
+                sampled_to_replay = memory.sample(args.sampling_k, memory)
+                for eg in sampled_to_replay:
+                    er_input_ids = torch.unsqueeze(eg.x["input_ids"], dim=0)
+                    er_input_masks = torch.unsqueeze(eg.x["input_masks"], dim=0)
+                    er_lengths = torch.unsqueeze(eg.x["lengths"], dim=0)
+                    er_y_intents = torch.unsqueeze(eg.y_intent, dim=0)
+                    er_y_slots = torch.unsqueeze(eg.y_slot, dim=0)
+                    er_i_task = eg.i_task
+
+                    if device != torch.device("cpu"):
+                        er_input_ids = er_input_ids.cuda()
+                        er_input_masks = er_input_masks.cuda()  # TODO compare when you use this versus when you don't
+                        er_lengths = er_lengths.cuda()
+                        er_y_intents = er_y_intents.cuda()
+                        er_y_slots = er_y_slots.cuda()
+
+                    if args.use_slots:
+                        _, _, intent_loss_er, slot_loss_er, loss_er, _ \
+                            = model(input_ids=er_input_ids,
+                                    input_masks=er_input_masks,
+                                    train_idx=er_i_task,
+                                    lengths=er_lengths,
+                                    intent_labels=er_y_intents,
+                                    slot_labels=er_y_slots)
+
+                        writer.add_scalar('memory_er_intent_loss_'+str(i_task), intent_loss_er.mean(), num_steps*epoch)
+                        writer.add_scalar('memory_er_slot_loss_'+str(i_task), slot_loss_er.mean(), num_steps*epoch)
+                    else:
+                        _, intent_loss_er, loss_er, _ = model(input_ids=er_input_ids,
+                                                              input_masks=er_input_masks,
+                                                              train_idx=er_i_task,
+                                                              lengths=er_lengths,
+                                                              intent_labels=er_y_intents)
+
+                        writer.add_scalar('memory_er_intent_loss_'+str(i_task), intent_loss_er.mean(), num_steps*epoch)
+
+                    # Backward pass over the experience replay example
+                    loss_er = loss_er.mean()
+                    loss_er.backward()
+
+        params = None
         saved_grads = None
 
     else:
@@ -226,265 +282,14 @@ def train(optimizer,
         saved_grads = None
 
     optimizer.step()
+    for i in range(args.batch_size):
+        intent = intent_labels[i].squeeze().item()
+        intent_embeddings[intent].append(pooled_output[i])
 
     if args.use_slots:
-        return intent_loss, slot_loss, params, saved_grads, optimizer, model
+        return intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings
 
-    return intent_loss, params, saved_grads, optimizer, model
-
-
-def nlu_evaluation(dataset,
-                   dataset_test,
-                   nb_examples,
-                   model,
-                   use_slots,
-                   test_idx,
-                   out_path=None,
-                   verbose=False,
-                   prior_mbert=None,
-                   prior_intents=None,
-                   prior_slots=None,
-                   prior_adapter=None):
-
-    app_log.info("Evaluating on i_task: %d", test_idx)
-    if prior_mbert or prior_intents or prior_slots or prior_adapter:
-
-        model_dict = model.state_dict()
-
-        if prior_mbert:
-            app_log.info("Using prior_mbert")
-            ### 1. wanted keys, values are in trans_model
-            trans_model_dict = {"trans_model."+k: v for k, v in prior_mbert.items()}
-
-            ### 2. overwrite entries in the existing state dict
-            model_dict.update(trans_model_dict)
-
-        if prior_intents:
-            app_log.info("Using prior_intents")
-            # TODO double check the naming with test_idx
-            ### 1. wanted keys, values are in trans_model
-            if "cil" in args.setup_opt:
-                intent_classifier_dict = {"intent_classifier."+str(test_idx)+"."+k: v for k, v in prior_intents.items()}
-            else:
-                intent_classifier_dict = {"intent_classifier."+k: v for k, v in prior_intents.items()}
-            ### 2. overwrite entries in the existing state dict
-            model_dict.update(intent_classifier_dict)
-
-        if prior_slots:
-            app_log.info("Using prior_slots")
-            ### 1. wanted keys, values are in trans_model
-            slot_classifier_dict = {"slot_classifier."+k: v for k, v in prior_slots.items()}
-
-            ### 2. overwrite entries in the existing state dict
-            model_dict.update(slot_classifier_dict)
-
-        if prior_adapter:
-            adapter_norm_before_dict = {"adapter."+k: v for k, v in prior_adapter.items()}
-
-            ### 2. overwrite entries in the existing state dict
-            model_dict.update(adapter_norm_before_dict)
-
-        ### 3. load the new state dict
-        model.load_state_dict(model_dict)
-
-    model.eval()
-
-    intent_corrects = 0
-    sents_text = []
-
-    intents_true = []
-    intents_pred = []
-
-    slots_true = []
-    slots_pred = []
-
-    slots_true_all = []
-    slots_pred_all = []
-
-    for _ in range(nb_examples):
-
-        (input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts), text \
-            = dataset.next_batch(1, dataset_test)
-
-        input_ids = input_ids.cuda()
-        lengths = lengths.cuda()
-        input_masks = input_masks.cuda()
-        intent_labels = intent_labels.cuda()
-        slot_labels = slot_labels.cuda()
-
-        if use_slots:
-            intent_logits, slot_logits, intent_loss, slot_loss, loss = model(input_ids=input_ids,
-                                                                             input_masks=input_masks,
-                                                                             train_idx=test_idx,
-                                                                             lengths=lengths,
-                                                                             intent_labels=intent_labels,
-                                                                             slot_labels=slot_labels)
-
-            # Slot Golden Truth/Predictions
-            true_slot = slot_labels[0]
-
-            slot_logits = [slot_logits[j, :length].data.cpu().numpy() for j, length in enumerate(lengths)]
-            pred_slot = list(slot_logits[0])
-
-            true_slot_l = [dataset.slot_types[s] for s in true_slot]
-            pred_slot_l = [dataset.slot_types[s] for s in pred_slot]
-
-            true_slot_no_x = []
-            pred_slot_no_x = []
-
-            for j, slot in enumerate(true_slot_l):
-                if slot != "X":
-                    true_slot_no_x.append(true_slot_l[j])
-                    pred_slot_no_x.append(pred_slot_l[j])
-
-            slots_true.append(true_slot_no_x)
-            slots_pred.append(pred_slot_no_x)
-
-            slots_true_all.extend(true_slot_no_x)
-            slots_pred_all.extend(pred_slot_no_x)
-
-        else:
-            intent_logits, intent_loss, loss = model(input_ids=input_ids,
-                                                     input_masks=input_masks,
-                                                     train_idx=test_idx,
-                                                     lengths=lengths,
-                                                     intent_labels=intent_labels)
-
-
-
-        # Intent Golden Truth/Predictions
-        true_intent = intent_labels.squeeze().item()
-        pred_intent = intent_logits.squeeze().max(0)[1]
-
-        intent_corrects += int(pred_intent == true_intent)
-
-        masked_text = ' '.join(dataset.tokenizer.convert_ids_to_tokens(input_ids.squeeze().tolist()))
-        intents_true.append(true_intent)
-        intents_pred.append(pred_intent.item())
-        sents_text.append(input_texts)
-
-    if out_path:
-        with open(out_path, "w") as writer:
-            for i in range(len(sents_text)):
-                if i < 3:  # print first 3 predictions
-                    app_log.info("Sent : %s", sents_text[i][0])
-                    app_log.info(" True Intent: ")
-                    app_log.info(intent_types[intents_true[i]])
-                    app_log.info(" Intent Prediction :")
-                    app_log.info(intent_types[intents_pred[i]])
-                    app_log.info(" True Slots: ")
-                    app_log.info(" ".join(slots_true[i]))
-                    app_log.info(" Slot Prediction:")
-                    app_log.info(" ".join(slots_pred[i]))
-
-                text = sents_text[i][0] + "\t" + intent_types[intents_true[i]] + "\t" + intent_types[intents_pred[i]] \
-                         + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
-                writer.write(text+"\n")
-
-    if verbose:
-        app_log.info(test_idx)
-        app_log.info(" -----------intents_true:")
-        app_log.info(set(intents_true))
-        app_log.info(" -----------intents_pred:")
-        app_log.info(set(intents_pred))
-
-    intent_accuracy = float(intent_corrects) / nb_examples
-    intent_prec = precision_score(intents_true, intents_pred, average="macro")
-    intent_rec = recall_score(intents_true, intents_pred, average="macro")
-    intent_f1 = f1_score(intents_true, intents_pred, average="macro")
-
-    if use_slots:
-        slot_prec = precision_score(slots_true_all, slots_pred_all, average="macro")
-        slot_rec = recall_score(slots_true_all, slots_pred_all, average="macro")
-        slot_f1 = f1_score(slots_true_all, slots_pred_all, average="macro")
-
-        return intent_accuracy, intent_prec, intent_rec, intent_f1, slot_prec, slot_rec, slot_f1
-
-    return intent_accuracy, intent_prec, intent_rec, intent_f1
-
-
-def evaluate_report(dataset,
-                    data_stream,
-                    model,
-                    train_task,  # lang or subtask
-                    train_idx,
-                    test_task,  # lang or subtask
-                    test_idx,
-                    num_steps,
-                    writer,
-                    name,
-                    out_path=None,
-                    verbose=False,
-                    prior_mbert=None,
-                    prior_intents=None,
-                    prior_slots=None,
-                    prior_adapter=None):
-
-    outputs = nlu_evaluation(dataset,
-                             data_stream["examples"],
-                             data_stream["size"],
-                             model,
-                             args.use_slots,
-                             test_idx,
-                             out_path=out_path,
-                             verbose=verbose,
-                             prior_mbert=prior_mbert,
-                             prior_intents=prior_intents,
-                             prior_slots=prior_slots,
-                             prior_adapter=prior_adapter)
-
-    output_text_format = "----size=%d, test_index=%d, and task=%s" % (data_stream["size"],
-                                                                      test_idx,
-                                                                      test_task)
-
-    metrics = {}
-    if not args.use_slots:
-        intent_acc, intent_prec, intent_rec, intent_f1 = outputs
-        avg_perf = intent_acc
-
-    else:
-        intent_acc, intent_prec, intent_rec, intent_f1, slot_prec, slot_rec, slot_f1 = outputs
-
-        output_text_format += " SLOTS perf: (prec=%f, rec=%f, f1=%f) " % (round(slot_prec*100, 1),
-                                                                          round(slot_rec*100, 1),
-                                                                          round(slot_f1*100, 1))
-
-        avg_perf = (intent_acc + slot_f1) / 2
-
-        metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_slot_prec_'+test_task+'_'+str(test_idx): slot_prec})
-        metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_slot_rec_'+test_task+'_'+str(test_idx): slot_rec})
-        metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_slot_f1_'+test_task+'_'+str(test_idx): slot_f1})
-
-    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_acc_'+test_task+'_'+str(test_idx): intent_acc})
-    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_prec_'+test_task+'_'+str(test_idx): intent_prec})
-    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_rec_'+test_task+'_'+str(test_idx): intent_rec})
-    metrics.update({train_task+'_'+str(train_idx)+'_'+name+'_intent_f1_'+test_task+'_'+str(test_idx): intent_f1})
-
-    output_text_format += " INTENTS perf: (acc: %f, prec: %f, rec: %f, f1: %f)" % (round(intent_acc*100, 1),
-                                                                                   round(intent_prec*100, 1),
-                                                                                   round(intent_rec*100, 1),
-                                                                                   round(intent_f1*100, 1))
-
-    app_log.info(output_text_format)
-    for k, v in metrics.items():
-        writer.add_scalar(k, v, num_steps)
-
-    return metrics, avg_perf
-
-
-def set_optimizer(model):
-    optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     betas=(args.beta_1, args.beta_2),
-                     eps=args.adam_eps,
-                     lr=args.adam_lr)
-
-    scheduler = SchedulerLR(optimizer,
-                            step_size=args.step_size,
-                            gamma=args.gamma)
-
-    model.zero_grad()
-
-    return optimizer, scheduler
+    return intent_loss, params, saved_grads, optimizer, model, intent_embeddings
 
 
 def set_out_dir():
@@ -498,16 +303,18 @@ def set_out_dir():
                         1: "low2highclass",
                         2: "randomclass"}
 
-    results_dir = os.path.join(args.out_dir, # original output directory
-                               args.setup_opt, # setup option directory
-                               (lambda x: "NLU" if x else "Intents_only")(args.use_slots), # slot usage
-                               args.trans_model) # transformers model
+    results_dir = os.path.join(args.out_dir,  # original output directory
+                               args.setup_opt,  # setup option directory
+                               (lambda x: "NLU" if x else "Intents_only")(args.use_slots),  # slot usage
+                               args.trans_model)  # transformers model
 
     if not os.path.isdir(results_dir):
         os.makedirs(results_dir)
 
     if args.random_pred:
         results_dir = os.path.join(results_dir,
+                                   "RANDOM",
+                                   args.cil_stream_lang,
                                    "random_init")
 
         if not os.path.isdir(results_dir):
@@ -516,9 +323,15 @@ def set_out_dir():
         return results_dir
 
     if args.use_mono:
-        results_dir = os.path.join(results_dir,
-                                   "MONO",
-                                   args.languages[0])
+        if args.setup_opt == "cil":
+            results_dir = os.path.join(results_dir,
+                                       "MONO",
+                                       args.cil_stream_lang,
+                                       str(args.mono_index))
+        else:
+            results_dir = os.path.join(results_dir,
+                                       "MONO",
+                                       args.languages[0])
 
         if not os.path.isdir(results_dir):
             os.makedirs(results_dir)
@@ -527,7 +340,7 @@ def set_out_dir():
 
     if args.setup_opt not in ["multi"]:
         # the order of languages and classes and continuous learning algorithms are only specific to non multi setups
-        order_lang = "_".join(args.order_str) if len(args.order_str) > 0 else order_lang_dict[args.order_lang]
+        order_lang = args.order_lst if len(args.order_lst) > 0 else order_lang_dict[args.order_lang]
 
         cont_alg_option = args.cont_learn_alg
         if args.cont_learn_alg != "vanilla":
@@ -603,20 +416,22 @@ def set_out_dir():
 
 
 def train_task_epochs(model,
+                      intent_embeddings,
                       optimizer,
                       grad_dims,
                       cont_learn_alg,
                       dataset,
                       train_examples,
+                      memory,
                       dev_stream,
                       test_stream,
                       subtask_size,
                       sample_sizes,
                       num_iter,
-                      train_idx, ## to be used for both the training language and subtask if cll this doesn't matter, if cil this helps
+                      train_idx,  # to be used for both the training language and subtask if cll this doesn't matter, if cil this helps
                       train_lang,
                       num_steps,
-                      writer, # saving options
+                      writer,  # saving options
                       results_dir,
                       metrics_dir,
                       checkpoint_dir,
@@ -630,16 +445,21 @@ def train_task_epochs(model,
 
     dev_perf_best = 0.0
     best_model = None
+    params = None
+    saved_grads = None
+    features_examples = []
     for epoch in tqdm(range(args.epochs)):
         gc.collect()
         num_steps += 1
         for step_iter in range(num_iter):
             train_outputs = train(optimizer,
+                                  intent_embeddings,
                                   model,
                                   grad_dims,
                                   cont_learn_alg,
                                   dataset,
                                   train_examples,
+                                  memory,
                                   subtask_size,
                                   writer,
                                   epoch,
@@ -649,13 +469,13 @@ def train_task_epochs(model,
                                   sample_sizes=sample_sizes)
 
             if args.use_slots:
-                intent_loss, slot_loss, params, saved_grads, optimizer, model = train_outputs
+                intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
                 if step_iter % args.test_steps == 0:
                     app_log.info('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
                                                                                        intent_loss.mean(),
                                                                                        slot_loss.mean()))
             else:
-                intent_loss, params, saved_grads, optimizer, model = train_outputs
+                intent_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
                 if step_iter % args.test_steps == 0:
                     app_log.info('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
                                                                    intent_loss.mean()))
@@ -676,6 +496,9 @@ def train_task_epochs(model,
                                           train_idx,
                                           num_steps,
                                           writer,
+                                          args,
+                                          app_log,
+                                          device,
                                           name="dev",
                                           out_path=dev_out_path)
         else:
@@ -699,6 +522,7 @@ def train_task_epochs(model,
             for test_idx, test_subtask_lang in enumerate(test_stream):
                 if test_stream[test_subtask_lang]['size'] > 0:
                     metrics[test_subtask_lang], _ = evaluate_report(dataset,
+                                                                    memory,
                                                                     test_stream[test_subtask_lang],
                                                                     best_model,
                                                                     train_lang,
@@ -707,6 +531,9 @@ def train_task_epochs(model,
                                                                     test_idx,
                                                                     num_steps,
                                                                     writer,
+                                                                    args,
+                                                                    app_log,
+                                                                    device,
                                                                     name="test",
                                                                     out_path=os.path.join(results_dir,
                                                                                           "Test_perf-Epoch_" + str(epoch)
@@ -723,7 +550,7 @@ def train_task_epochs(model,
                     as output_file:
                 pickle.dump(metrics, output_file)
 
-    return params, saved_grads, best_model, optimizer
+    return params, saved_grads, best_model, optimizer, intent_embeddings
 
 
 def test_at_end_training(best_model,
@@ -738,15 +565,7 @@ def test_at_end_training(best_model,
                          prior_mbert,
                          prior_intents,
                          prior_slots,
-                         prior_adapter_norm_before,
-                         prior_adapter_down_1,
-                         prior_adapter_up_1,
-                         prior_adapter_norm_after_1,
-                         prior_adapter_feed_layer_1,
-                         prior_adapter_feed_layer_2,
-                         prior_adapter_down_2,
-                         prior_adapter_up_2,
-                         prior_adapter_norm_after_2):
+                         prior_adapter):
 
     app_log.info("------------------------------------ TESTING At the end of the training")
     metrics = {task: {} for task in test_stream} # could be either per subtask or language
@@ -761,6 +580,8 @@ def test_at_end_training(best_model,
                                                             test_idx,
                                                             num_steps,
                                                             writer,
+                                                            args,
+                                                            app_log,
                                                             name="test",
                                                             out_path=os.path.join(results_dir,
                                                                                   "End_test_perf-train_"+train_lang
@@ -769,15 +590,7 @@ def test_at_end_training(best_model,
                                                             prior_mbert=prior_mbert[test_idx],
                                                             prior_intents=prior_intents[test_idx],
                                                             prior_slots=prior_slots[test_idx],
-                                                            prior_adapter_norm_before=prior_adapter_norm_before[test_idx],
-                                                            prior_adapter_down_1=prior_adapter_down_1[test_idx],
-                                                            prior_adapter_up_1=prior_adapter_up_1[test_idx],
-                                                            prior_adapter_norm_after_1=prior_adapter_norm_after_1[test_idx],
-                                                            prior_adapter_feed_layer_1=prior_adapter_feed_layer_1[test_idx],
-                                                            prior_adapter_feed_layer_2=prior_adapter_feed_layer_2[test_idx],
-                                                            prior_adapter_down_2=prior_adapter_down_2[test_idx],
-                                                            prior_adapter_up_2=prior_adapter_up_2[test_idx],
-                                                            prior_adapter_norm_after_2=prior_adapter_norm_after_2[test_idx])
+                                                            prior_adapter=prior_adapter[test_idx])
 
     with open(os.path.join(metrics_dir, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
         pickle.dump(metrics, output_file)
@@ -822,23 +635,23 @@ def run(results_dir, args, app_log):
 
     model_trans = model_trans_alias.from_pretrained(model_load_alias,
                                                     config=config)
-
-    dataset = Dataset(args.data_root,
-                      args.setup_opt,
-                      args.setup_cillia,
-                      args.multi_head_out,
-                      tokenizer,
-                      args.data_format,
-                      args.use_slots,
-                      args.seed,
-                      args.languages,
-                      args.order_class,
-                      args.order_lang,
-                      args.order_str,
-                      args.num_intent_tasks,
-                      args.num_lang_tasks,
-                      intent_types=intent_types,
-                      slot_types=slot_types)
+    dataset = NLUDataset(args.data_root,
+                         args.setup_opt,
+                         args.setup_cillia,
+                         args.multi_head_out,
+                         args.use_mono,
+                         tokenizer,
+                         args.data_format,
+                         args.use_slots,
+                         args.seed,
+                         args.languages,
+                         args.order_class,
+                         args.order_lang,
+                         args.order_lst,
+                         args.num_intent_tasks,
+                         args.num_lang_tasks,
+                         intent_types=INTENT_TYPES,
+                         slot_types=SLOT_TYPES)
 
     eff_num_intent = len(dataset.intent_types)
     num_intents = len(dataset.intent_types)
@@ -862,8 +675,8 @@ def run(results_dir, args, app_log):
         num_tasks = 1
         eff_num_intents_task = eff_num_intent
     elif args.setup_opt in ["multi-incr", "cll"]:
-        if len(args.order_str) > 0:
-            num_tasks = len(args.order_str)
+        if len(args.order_lst) > 0:
+            num_tasks = len(args.order_lst.split(" "))
         else:
             num_tasks = len(args.languages)
         eff_num_intents_task = eff_num_intent
@@ -887,28 +700,37 @@ def run(results_dir, args, app_log):
         gpus_list = list(range(torch.cuda.device_count()))
         model = nn.DataParallel(model, device_ids=gpus_list, dim=0)
 
-    model.cuda()
+    if device != torch.device("cpu"):
+        model.cuda()
 
     if args.random_pred:
         metrics = {lang: {} for lang in dataset.test_stream}
-        for test_idx, test_lang in enumerate(dataset.test_stream):
-            metrics[test_lang], _ = evaluate_report(dataset,
-                                                    dataset.test_stream[test_lang],
-                                                    model,
-                                                    test_lang,
-                                                    test_idx,
-                                                    test_lang,
-                                                    test_idx,
-                                                    0,
-                                                    writer,
-                                                    name="init",
-                                                    out_path=os.path.join(results_dir, "initial_perf.txt"),
-                                                    verbose=args.verbose)
+        for lang in test_stream:
+            print("HERE;", lang)
+        for test_idx, test_subtask_lang in enumerate(test_stream):
+            metrics[test_subtask_lang], _ = evaluate_report(dataset,
+                                                            test_stream[test_subtask_lang],
+                                                            model,
+                                                            args.cil_stream_lang,
+                                                            0,
+                                                            test_subtask_lang,
+                                                            test_idx,
+                                                            0,
+                                                            writer,
+                                                            args,
+                                                            app_log,
+                                                            name="init",
+                                                            out_path=os.path.join(results_dir,
+                                                                                  "initial_perf.txt"),
+                                                            verbose=args.verbose)
 
         with open(os.path.join(metrics_dir, "initial_metrics.pickle"), "wb") as output_file:
             pickle.dump(metrics, output_file)
 
-    optimizer, scheduler = set_optimizer(model)
+        exit(0)
+
+    optimizer, scheduler = set_optimizer(args, list(model.parameters()))
+    model.zero_grad()
 
     grad_dims = []
     for n, p in model.named_parameters():
@@ -930,8 +752,23 @@ def run(results_dir, args, app_log):
                              args.a_gem_n,
                              checkpoint_dir,
                              args.cont_comp)
+    elif args.cont_learn_alg == "mbpa":
+        cont_learn_alg = MBPA(args,
+                              device)
     else:
         cont_learn_alg = None
+
+    if args.cont_learn_alg in ["er", "mbpa"]:
+        memory_mod = importlib.import_module(
+            'contlearnalg.memory.'+args.cont_learn_alg.upper()+"Memory")
+
+        memory = memory_mod.Memory(max_mem_sz=args.max_mem_sz,
+                                   total_num_tasks=len(train_stream),
+                                   embed_dim=model.trans_model.config.hidden_size,
+                                   storing_type=args.storing_type,
+                                   sampling_type=args.sampling_type)
+    else:
+        memory = None
 
     prior_mbert = [None for _ in train_stream]
     prior_intents = [None for _ in train_stream]
@@ -981,12 +818,13 @@ def run(results_dir, args, app_log):
         original_intent = copy.deepcopy(model.intent_classifier)
         original_slot = copy.deepcopy(model.slot_classifier)
         if args.use_adapters:
-            original_adapter = copy.deepcopy(model.adapter)
+            original_adapter = copy.deepcopy(model.adapter) # TODO CHANGE MANY ADAPTERS
         else:
             original_adapter = None
 
         mean_all_stream = []
         sum_all_stream = []
+        intent_embeddings = {intent: [] for intent in range(len(INTENT_TYPES))}
 
         for train_idx, train_subtask_lang in enumerate(train_stream):
             if train_subtask_lang["size"] == 0:
@@ -994,7 +832,7 @@ def run(results_dir, args, app_log):
                 continue
             sample_sizes.append(int(train_subtask_lang["size"]*args.old_task_prop))
             num_steps = 0
-            num_iter = train_subtask_lang["size"]//args.batch_size
+            num_iter = train_subtask_lang["size"]//args.batch_size # TODO add samples that are not covered at the end of the batch
             train_lang = train_subtask_lang["lang"]
             train_examples = train_subtask_lang["examples"]
 
@@ -1015,6 +853,14 @@ def run(results_dir, args, app_log):
 
                         if p.requires_grad and 'slot_classifier' in n:
                             p.requires_grad = False
+
+            if args.use_pretrained_adapters:
+                for k, v in model.named_parameters():
+                    if "trans_model" in k:
+                        v.requires_grad = False
+
+                    if ".adapters."+train_lang+"." in k:
+                        v.requires_grad = True
 
             subtask_size[train_idx] = train_subtask_lang["size"]
 
@@ -1049,31 +895,33 @@ def run(results_dir, args, app_log):
             if args.multi_head_in or args.multi_head_out or args.use_adapters:
                 model.load_state_dict(model_dict)
 
-            params, saved_grads, best_model, optimizer = train_task_epochs(model,
-                                                                           optimizer,
-                                                                           grad_dims,
-                                                                           cont_learn_alg,
-                                                                           dataset,
-                                                                           train_examples,
-                                                                           dev_stream,
-                                                                           test_stream,
-                                                                           subtask_size,
-                                                                           sample_sizes,
-                                                                           num_iter,
-                                                                           train_idx,
-                                                                           train_lang, # training name of the task # TODO think about it
-                                                                           num_steps,
-                                                                           writer,  # saving options
-                                                                           results_dir,
-                                                                           metrics_dir,
-                                                                           checkpoint_dir,
-                                                                           args_save_file,
-                                                                           model_save_file,
-                                                                           optim_save_file,
-                                                                           prior_mbert,  # prior options
-                                                                           prior_intents,
-                                                                           prior_slots,
-                                                                           prior_adapter)
+            params, saved_grads, best_model, optimizer, intent_embeddings = train_task_epochs(model,
+                                                                                              intent_embeddings,
+                                                                                              optimizer,
+                                                                                              grad_dims,
+                                                                                              cont_learn_alg,
+                                                                                              dataset,
+                                                                                              train_examples,
+                                                                                              memory,
+                                                                                              dev_stream,
+                                                                                              test_stream,
+                                                                                              subtask_size,
+                                                                                              sample_sizes,
+                                                                                              num_iter,
+                                                                                              train_idx,
+                                                                                              train_lang, # training name of the task # TODO think about it
+                                                                                              num_steps,
+                                                                                              writer,  # saving options
+                                                                                              results_dir,
+                                                                                              metrics_dir,
+                                                                                              checkpoint_dir,
+                                                                                              args_save_file,
+                                                                                              model_save_file,
+                                                                                              optim_save_file,
+                                                                                              prior_mbert,  # prior options
+                                                                                              prior_intents,
+                                                                                              prior_slots,
+                                                                                              prior_adapter)
 
             """ 2. Saving the trained weights of MBERT in each language to be used later on in testing stage"""
 
@@ -1094,39 +942,8 @@ def run(results_dir, args, app_log):
                 prior_slots[train_idx] = {k: v for k, v in slots_task.named_parameters()}
 
             if args.use_adapters:
-                adapter_norm_before = copy.deepcopy(model.adapter.adapter_norm_before)
-                prior_adapter_norm_before[train_idx] = {k: v for k, v in adapter_norm_before.named_parameters()}
-
-                adapter_down_1 = copy.deepcopy(model.adapter.adapter_down_1[1])
-                prior_adapter_down_1[train_idx] = {k: v for k, v in adapter_down_1.named_parameters()}
-
-                adapter_up = copy.deepcopy(model.adapter.adapter_up_1)
-                prior_adapter_up_1[train_idx] = {k: v for k, v in adapter_up.named_parameters()}
-
-                if args.adapter_type == "houlsby":
-                    ##
-                    adapter_norm_after_1 = copy.deepcopy(model.adapter.adapter_norm_after_1)
-                    prior_adapter_norm_after_1[train_idx] = {k: v for k, v in adapter_norm_after_1.named_parameters()}
-
-                    ##
-                    adapter_feed_layer_1 = copy.deepcopy(model.adapter.feed_layer_1)
-                    prior_adapter_feed_layer_1[train_idx] = {k: v for k, v in adapter_feed_layer_1.named_parameters()}
-
-                    ##
-                    adapter_feed_layer_2 = copy.deepcopy(model.adapter.feed_layer_2)
-                    prior_adapter_feed_layer_2[train_idx] = {k: v for k, v in adapter_feed_layer_2.named_parameters()}
-
-                    ##
-                    adapter_down_2 = copy.deepcopy(model.adapter.adapter_down_2[0])
-                    prior_adapter_down_2[train_idx] = {k: v for k, v in adapter_down_2.named_parameters()}
-
-                    ##
-                    adapter_up_2 = copy.deepcopy(model.adapter.adapter_up_2)
-                    prior_adapter_up_2[train_idx] = {k: v for k, v in adapter_up_2.named_parameters()}
-
-                    ##
-                    adapter_norm_after_2 = copy.deepcopy(model.adapter.adapter_norm_after_2)
-                    prior_adapter_norm_after_2[train_idx] = {k: v for k, v in adapter_norm_after_2.named_parameters()}
+                adapter = copy.deepcopy(model.adapter)
+                prior_adapter[train_idx] = {k: v for k, v in adapter.named_parameters()}
 
             if args.save_change_params:
                 app_log.info("After training on language: %d", train_idx)
@@ -1161,117 +978,10 @@ def run(results_dir, args, app_log):
                                  prior_mbert,
                                  prior_intents,
                                  prior_slots,
-                                 prior_adapter_norm_before,
-                                 prior_adapter_down_1,
-                                 prior_adapter_up_1,
-                                 prior_adapter_norm_after_1,
-                                 prior_adapter_feed_layer_1,
-                                 prior_adapter_feed_layer_2,
-                                 prior_adapter_down_2,
-                                 prior_adapter_up_2,
-                                 prior_adapter_norm_after_2)
+                                 prior_adapter)
 
         with open(os.path.join(metrics_dir, "mean_all_stream_mbert.pickle"), "wb") as output_file:
             pickle.dump(mean_all_stream, output_file)
-
-    elif args.setup_opt == "cil-ll":
-        """
-        Setup 4: Cross-CIL-LL: "Cross-lingual combinations of languages/intents"
-        - Stream consisting of different combinations 
-        """
-        _lambda = 20
-        sample_sizes = []
-        for i, subtask in enumerate(dataset.train_stream):
-            num_steps = 0
-            # Iterating over the stream of languages and intents
-            sample_sizes.append(subtask["size"] // 10)
-
-            if subtask["size"] == 0:
-                app_log.warning("Skipped task: %d", i)
-                continue
-
-            for epoch in tqdm(range(args.epochs)):
-                gc.collect()
-                num_steps += 1
-                num_iter = subtask["size"] // args.batch_size
-                lang = subtask["lang"]
-                stream = subtask["examples"]
-
-                for j in range(num_iter):
-                    if args.use_slots:
-                        intent_loss, slot_loss = train(args,
-                                                       optimizer,
-                                                       model,
-                                                       dataset,
-                                                       stream,
-                                                       writer,
-                                                       epoch,
-                                                       i,
-                                                       j,
-                                                       old_dataset=dataset.train_stream, # all dataset to get old stream
-                                                       sample_sizes=sample_sizes,
-                                                       _lambda=_lambda)
-                    else:
-                        intent_loss = train(args,
-                                            optimizer,
-                                            model,
-                                            dataset,
-                                            stream,
-                                            writer,
-                                            epoch,
-                                            i,
-                                            j,
-                                            old_dataset=dataset.train_stream, # all dataset to get old stream
-                                            sample_sizes=sample_sizes,
-                                            _lambda=_lambda)
-                    if args.use_slots:
-                        app_log.info('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(j,
-                                                                                           intent_loss.mean(),
-                                                                                           slot_loss.mean()))
-                    else:
-                        app_log.info('Iter {} | Intent Loss = {:.4f} '.format(j, intent_loss.mean()))
-
-                    if j % args.test_steps == 0:
-                        for lang in dataset.test_stream[i]:
-                            for k in range(0, i+1):
-                                if dataset.test_stream[k][lang]["size"] > 0:
-                                    evaluate_report(dataset.test_stream[k][lang],
-                                                    k,
-                                                    lang,
-                                                    lang,
-                                                    args,
-                                                    dataset,
-                                                    model,
-                                                    writer,
-                                                    i,
-                                                    num_steps,
-                                                    out_path=os.path.join(results_dir,
-                                                                          "Test_perf-Epoch_"+epoch+"-train_"+str(i)+"-test_"+str(k)),
-                                                    verbose=args.verbose)
-                                else:
-                                    app_log.warning("Skipped task: %d", k, " in lang: %s", lang)
-
-            for lang in dataset.test_stream[i]:
-                    for k in range(0, i+1):
-                        if dataset.test_stream[k][lang]["size"] > 0:
-                            metrics = evaluate_report(dataset.test_stream[k][lang],
-                                                      k,
-                                                      lang,
-                                                      lang,
-                                                      args,
-                                                      dataset,
-                                                      model,
-                                                      writer,
-                                                      i,
-                                                      num_steps,
-                                                      out_path=os.path.join(results_dir,
-                                                                            "End-Test_perf-train_"+str(i)+"-test_"+str(k)),
-                                                      verbose=args.verbose)
-                        else:
-                            app_log.warning("Skipped task: %d", k, " in lang: %s", lang)
-
-            with open(os.path.join(metrics_dir, "final_metrics_"+str(i)+".pickle"), "wb") as output_file:
-                pickle.dump(metrics, output_file)
 
     elif args.setup_opt == "multi":
         """
@@ -1289,39 +999,32 @@ def run(results_dir, args, app_log):
         train_lang = "-".join(args.languages)  # all languages
         num_steps = 0
 
-        params, saved_grads, best_model, optimizer = train_task_epochs(model,
-                                                                       optimizer,
-                                                                       grad_dims,
-                                                                       cont_learn_alg,
-                                                                       dataset,
-                                                                       train_examples,
-                                                                       dev_stream,
-                                                                       test_stream,
-                                                                       subtask_size,
-                                                                       sample_sizes,
-                                                                       num_iter,
-                                                                       train_idx,
-                                                                       train_lang,
-                                                                       num_steps,
-                                                                       writer,  # saving options
-                                                                       results_dir,
-                                                                       metrics_dir,
-                                                                       checkpoint_dir,
-                                                                       args_save_file,
-                                                                       model_save_file,
-                                                                       optim_save_file,
-                                                                       prior_mbert,  # prior options
-                                                                       prior_intents,
-                                                                       prior_slots,
-                                                                       prior_adapter_norm_before,
-                                                                       prior_adapter_down_1,
-                                                                       prior_adapter_up_1,
-                                                                       prior_adapter_norm_after_1,
-                                                                       prior_adapter_feed_layer_1,
-                                                                       prior_adapter_feed_layer_2,
-                                                                       prior_adapter_down_2,
-                                                                       prior_adapter_up_2,
-                                                                       prior_adapter_norm_after_2)
+        params, saved_grads, best_model, optimizer, intent_embeddings = train_task_epochs(model,
+                                                                                          optimizer,
+                                                                                          grad_dims,
+                                                                                          cont_learn_alg,
+                                                                                          dataset,
+                                                                                          train_examples,
+                                                                                          memory,
+                                                                                          dev_stream,
+                                                                                          test_stream,
+                                                                                          subtask_size,
+                                                                                          sample_sizes,
+                                                                                          num_iter,
+                                                                                          train_idx,
+                                                                                          train_lang,
+                                                                                          num_steps,
+                                                                                          writer,  # saving options
+                                                                                          results_dir,
+                                                                                          metrics_dir,
+                                                                                          checkpoint_dir,
+                                                                                          args_save_file,
+                                                                                          model_save_file,
+                                                                                          optim_save_file,
+                                                                                          prior_mbert,  # prior options
+                                                                                          prior_intents,
+                                                                                          prior_slots,
+                                                                                          prior_adapter)
 
         test_at_end_training(best_model,
                              dataset,
@@ -1335,275 +1038,23 @@ def run(results_dir, args, app_log):
                              prior_mbert,
                              prior_intents,
                              prior_slots,
-                             prior_adapter_norm_before,
-                             prior_adapter_down_1,
-                             prior_adapter_up_1,
-                             prior_adapter_norm_after_1,
-                             prior_adapter_feed_layer_1,
-                             prior_adapter_feed_layer_2,
-                             prior_adapter_down_2,
-                             prior_adapter_up_2,
-                             prior_adapter_norm_after_2)
-
-
-def set_seed():
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if torch.cuda.device_count() > 0:
-        torch.cuda.manual_seed_all(args.seed)
+                             prior_adapter)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("./main.py", description="Different options/arguments for running continuous"
-                                                              "learning algorithms.")
-
-    ## PATHS
-    path_params = parser.add_argument_group("Path Parameters")
-    path_params.add_argument("--data_root", help="Root directory of the dataset.",
-                             type=str, default="")
-
-    path_params.add_argument("--model_root", help="Path to the root directory hosting the trans model, if offline.",
-                             type=str, default="")
-
-    path_params.add_argument("--out_dir", help="The root directory of the results for this project.",
-                             type=str, default="")
-
-    path_params.add_argument("--stats_file", help="Filename of the stats file.",  # TODO CHECK WHAT THIS DOES EXACTLY
-                             type=str, default="stats.txt")
-
-    path_params.add_argument("--log_file", help="Filename of the log file.",  # TODO DO PROPER CHECKPOINTING
-                             type=str, default="log.txt")
-
-    ## SETUP OPTIONS
-    setup_params = parser.add_argument_group("Setup Scenarios Parameters")
-    setup_params.add_argument("--setup_opt", help="The different setup scenarios to pick from:"
-                                                  "* cil:        Cross-CIL with fixed LL. "
-                                                  "* cil-other:  Incremental version of cil where previous intents' "
-                                                  "              subtasks are added in addition to other labels for"
-                                                  "              subsequent intents'subtasks."
-                                                  "* cll:        Cross-LL with fixed CIL."
-                                                  "* cil-ll:     Cross CIL and CLL mixed."
-                                                  "* multi-incr-cil: Weaker version of Multi-Task Learning, where we"
-                                                  "                  gradually fine-tune on the accumulation of "
-                                                  "                  different subtasks."
-                                                  "* multi-incr-cll: Weaker version of Multilingual Learning, where we"
-                                                  "                  gradually fine-tune on the accumulation of "
-                                                  "                  different languages."
-                                                  "* multi:      Multi-tasking one model on all tasks and languages.",
-
-                              choices=["cil", "cil-other", "multi-incr-cil",
-                                       "cll", "multi-incr-cll",
-                                       "cil-ll",
-                                       "multi"],
-                              type=str, default="cll")
-
-    setup_params.add_argument("--cil_stream_lang", help="Which lang to work on for the CIL setup if it is picked.",
-                              default="en")
-
-    setup_params.add_argument("--order_class", help="Different ways of ordering the classes:"
-                                                    "* 0: high2lowclass: decreasing order (from high to low-resource)."
-                                                    "* 1: low2highclass: increasing order (from low to high-resource)."
-                                                    "* 2: randomclass: random order.",
-                              type=int, default=0)
-
-    setup_params.add_argument("--order_lang", help="Different ways of ordering the languages:"
-                                                   "* 0: high2lowlang: decreasing order (from high to low-resource)."
-                                                   "* 1: low2highlang: increasing order (from low to high-resource)."
-                                                   "* 2: randomlang: random order.",
-                              type=int, default=0)
-
-    setup_params.add_argument("--order_str", help="Specific order for subtasks and languages: list of languages "
-                                                  "or subtasks.",
-                              nargs='+', default=[],
-                              choices=[])
-
-    setup_params.add_argument("--setup_cillia", help="Different ways of ordering mixture of both cll and cil:"
-                                                     "* intents: traversing subtasks horizontally over all intent "
-                                                     "           classes first then to languages."
-                                                     "* langs: traversing subtasks vertically over all languages first"
-                                                     "         then to classes.",
-                              type=str, default="intents")
-
-    setup_params.add_argument('--random_pred', help="Whether to predict directly the random initialization of the model"
-                                                    "when tested directly on the languages without any fine-tuning.",
-                              action="store_true")
-
-
-    ## DATASET OPTIONS
-    dataset_params = parser.add_argument_group("Dataset Options")
-    dataset_params.add_argument("--data_format", help="Whether it is tsv (MTOD), json, or txt (MTOP).",
-                                type=str, default="txt")
-
-    dataset_params.add_argument("--languages", help="Train languages list.",
-                                nargs="+", default=["de", "en", "es", "fr", "hi", "th"])
-
-    dataset_params.add_argument("--num_intent_tasks", help="The number of intent per task.",
-                                type=int, default=10)
-
-    dataset_params.add_argument("--num_lang_tasks", help="The number of lang per task.",
-                                type=int, default=2)
-
-    ## Checkpointing/logging options
-    checkpointing_params = parser.add_argument_group("Checkpointing/logging Parameters")
-    checkpointing_params.add_argument("--verbose", help="If true, return golden labels and predictions to console.",
-                                      action="store_true")
-
-    checkpointing_params.add_argument("--save_dev_pred", help="If true, save the dev predictions.",
-                                      action="store_true")
-
-    checkpointing_params.add_argument("--save_test_every_epoch", help="If true, save test at the end of each epoch.",
-                                      action="store_true")
-
-    checkpointing_params.add_argument("--save_change_params", help="If true, save test at the end of each epoch.",
-                                      action="store_true")
-
-    checkpointing_params.add_argument("--no_debug", help="If true, save training and testing logs to disk.",
-                                      action="store_true")
-
-    checkpointing_params.add_argument("--save_model", help="Whether to save the model after training.",
-                                      action="store_true")
-
-    ## BASE MODEL TRAINING OPTIONS
-    base_model_params = parser.add_argument_group("Base Model Parameters")
-    base_model_params.add_argument("--trans_model", help="Name of the Transformer encoder model.",
-                                   type=str, default="BertBaseMultilingualCased",
-                                   choices=["BertBaseMultilingualCased", "BertLarge", "BertBaseCased",
-                                            "Xlnet_base", "Xlnet_large", "XLM", "DistilBert_base",
-                                            "DistilBert_large", "Roberta_base", "Roberta_large",
-                                            "XLMRoberta_base", "XLMRoberta_large", "ALBERT-base-v1",
-                                            "ALBERT-large-v1", "ALBERT-xlarge-v1", "ALBERT-xxlarge-v1",
-                                            "ALBERT-base-v2", "ALBERT-large-v2", "ALBERT-xlarge-v2",
-                                            "ALBERT-xxlarge-v2"])
-
-    base_model_params.add_argument("--use_slots", help="If true, optimize for slot filling loss too.",
-                                   action="store_true")
-
-    base_model_params.add_argument("--use_mono", help="Whether to train monolingually.",
-                                   action="store_true")
-
-    base_model_params.add_argument("--epochs", help="The total number of epochs.",
-                                   type=int, default=10)
-
-    base_model_params.add_argument("--dev_steps", help="The total number of epochs to evaluate the model on the dev.",
-                                   type=int, default=200)  # TODO DEV IS EVALUATED ON ONLY AFTER EACH EPOCH
-
-    base_model_params.add_argument("--test_steps", help="The total number of epochs to evaluate the model on the test.",
-                                   type=int, default=200)  # TODO THIS IS NOT USED CONSISTENTLY
-
-    base_model_params.add_argument("--batch_size", help="The total number of epochs for the model to evaluate.",
-                                   type=int, default=32)
-
-    base_model_params.add_argument("--adam_lr", help="The learning rate for Adam Optimizer.",
-                                   type=float, default=1e-03)
-
-    base_model_params.add_argument("--adam_eps", help="Epsilon for the Adam Optimizer.",
-                                   type=float, default=1e-08)
-
-    base_model_params.add_argument("--beta_1", help="Beta_1 for the Adam Optimizer.",
-                                   type=float, default=0.9)
-
-    base_model_params.add_argument("--beta_2", help="Beta_2 for the Adam Optimizer.",
-                                   type=float, default=0.99)
-
-    base_model_params.add_argument("--step_size", help="The step size for the scheduler.",
-                                   type=int, default=7)
-
-    base_model_params.add_argument("--gamma", help="Gamma for the scheduler.",
-                                   type=float, default=0.1)
-
-    base_model_params.add_argument("--seed", help="Random Seed.",
-                                   type=int, default=42)
-
-    ### FREEZING OPTIONS
-    freezing_params = parser.add_argument_group("Freezing Options")
-    freezing_params.add_argument("--freeze_trans", help="Whether to freeze all layers in Transformer encoder/embed.",
-                                 action="store_true")
-
-    freezing_params.add_argument("--freeze_first", help="Whether to freeze from the first subtask/language.",
-                                 action="store_true")
-
-    freezing_params.add_argument("--freeze_linear", help="Whether to freeze all task-specific layers.",
-                                 action="store_true")
-
-
-    ## MODEL EXPANSION OPTIONS
-    model_expansion_params = parser.add_argument_group("Model Expansion Options")
-    model_expansion_params.add_argument("--multi_head_in", help="Whether to use multiple heads "
-                                                                "that would imply multiple subtask/language-specific "
-                                                                "heads at the input level.",
-                                        action="store_true")
-
-    model_expansion_params.add_argument("--emb_enc_subtask_spec", help="Which layer in the embeddings or the encoder "
-                                                                       "to tune for each subtask/language"
-                                                                       " independently.",
-                                        choices=["embeddings",
-                                                 "encoder.layer.0.",
-                                                 "encoder.layer.1.",
-                                                 "encoder.layer.2.",
-                                                 "encoder.layer.3.",
-                                                 "encoder.layer.4.",
-                                                 "encoder.layer.5.",
-                                                 "encoder.layer.6.",
-                                                 "encoder.layer.7.",
-                                                 "encoder.layer.8.",
-                                                 "encoder.layer.9.",
-                                                 "encoder.layer.10.",
-                                                 "encoder.layer.11.",
-                                                 "pooler",
-                                                 "all"],
-                                        nargs="+", default=["embeddings"])
-
-    model_expansion_params.add_argument("--multi_head_out", help="Whether to use multiple heads in the outputs that "
-                                                                 "would imply the use of different task-specific "
-                                                                 "layers.",
-                                        action="store_true")
-
-    model_expansion_params.add_argument("--use_adapters", help="whether to use adapters.",
-                                        action="store_true")
-
-    model_expansion_params.add_argument("--adapter_type", help="Which adapter to use.",
-                                        type=str, default="MADX", choices=["Houlsby", "MADX"])
-
-    model_expansion_params.add_argument("--adapter_layers", help="List of layers to which adapters are applied.",
-                                        nargs="+", default="0 1 2 3 4 5")
-
-    ## MODEL EXPANSION OPTIONS
-    cont_learn_params = parser.add_argument_group("Continuous Learning Options")
-    cont_learn_params.add_argument("--cont_learn_alg", help="vanilla fine-tuning or some continuous learning algorithm:"
-                                                            "(ewc, gem, mbpa, metambpa, etc) or vanilla if no specific"
-                                                            "continuous learning algorithm is used.",
-                                   choices=["vanilla", "ewc", "gem"],  # TODO to be covered next "mbpa", "metambpa", "icarl", "xdg", "si", "lwf", "gr", "rtf", "er"
-                                   type=str, default="vanilla")
-
-    cont_learn_params.add_argument("--cont_comp", help="Which component(s) in the model to focus on while learning "
-                                                       "during regularization or replay",
-                                   nargs="+", default=["trans intent slot"])
-
-    ### for ewc
-    cont_learn_params.add_argument("--old_task_prop", help="The percentage of old tasks used in regularization "
-                                                           "or replay.",
-                                   type=float, default=1.0)
-
-    cont_learn_params.add_argument("--ewc_lambda", help="If ewc: lambda for regularization in ewc.",
-                                   type=int, default=20)
-
-    cont_learn_params.add_argument("--use_online", help="If ewc: Whether to use the online version of EWC or not.",
-                                   action='store_true')
-
-    cont_learn_params.add_argument("--gamma_ewc", help="If ewc: The percentage of decay.",
-                                   type=int, default=0.01)
-
-    ### for gem
-    cont_learn_params.add_argument("--use_a_gem", help="If gem: whether to use averaged gem.",
-                                   action="store_true")
-
-    cont_learn_params.add_argument("--a_gem_n", help="If gem: The number of examples in the averaged memory.",
-                                   type=int, default=100)
-
+    parser = argparse.ArgumentParser("./main.py", description="Different options/arguments for running "
+                                                              "continuous learning algorithms.")
+    add_path_arguments(parser)
+    add_setup_arguments(parser)
+    add_dataset_arguments(parser)
+    add_checkpoint_arguments(parser)
+    add_base_model_arguments(parser)
+    add_freezing_arguments(parser)
+    add_model_expansion_arguments(parser)
+    cont_learn_arguments(parser)
     args = parser.parse_args()
-    set_seed()
 
+    set_seed(args.seed)
     results_dir = set_out_dir()
 
     app_log = logger(os.path.join(results_dir, args.log_file))
@@ -1611,7 +1062,6 @@ if __name__ == "__main__":
 
     if args.no_debug:
         stdoutOrigin = sys.stdout
-
         sys.stdout = open(os.path.join(results_dir, args.log_file), "w")
         logstats.init(os.path.join(results_dir, args.stats_file))
         config_path = os.path.join(results_dir, 'config.json')
