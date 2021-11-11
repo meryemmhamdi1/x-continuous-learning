@@ -1,5 +1,8 @@
+SLOT_PAD = 0
+EPSILON = 1e-5  # TODO DOUBLE CHECK THIS VALUE IN THE ORIGINAL PAPER on MbPA
+
 # 11 domains
-domain_types = ["Alarm",
+DOMAIN_TYPES = ["Alarm",
                 "Calling",
                 "Event",
                 "Messaging",
@@ -12,7 +15,7 @@ domain_types = ["Alarm",
                 "Weather"]
 
 # 117 intent types => actual only 114 intent types over each languages and each splits
-intent_types = ["alarm:CREATE_ALARM",
+INTENT_TYPES = ["alarm:CREATE_ALARM",
                 "alarm:DELETE_ALARM",
                 "alarm:GET_ALARM",
                 "alarm:SILENCE_ALARM",
@@ -128,7 +131,7 @@ intent_types = ["alarm:CREATE_ALARM",
                 "weather:GET_WEATHER"]
 
 # 78 slot types
-slot_types = ["O",
+SLOT_TYPES = ["O",
               "X",
               "B-AGE",
               "I-AGE",
