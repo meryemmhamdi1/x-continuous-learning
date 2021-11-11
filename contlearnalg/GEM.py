@@ -18,15 +18,18 @@ def overwrite_grad(pp, newgrad, grad_dims, cont_comp):
         newgrad: corrected gradient
         grad_dims: list storing number of parameters at each layer
     """
+
     cnt = 0
     for n, p in pp:
         if p.grad is not None and name_in_list(cont_comp, n):
             beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
             en = sum(grad_dims[:cnt + 1])
+            print("cnt:", cnt, " n:", n, "beg:", beg, " en:", en, " newgrad.shape:", newgrad[beg: en].shape, " p.grad.data.size():", p.grad.data.size())
             this_grad = newgrad[beg: en].contiguous().view(
                 p.grad.data.size())
             p.grad.data.copy_(this_grad)
-        cnt += 1
+        if name_in_list(cont_comp, n):
+            cnt += 1
 
     return
 
@@ -129,19 +132,20 @@ class GEM(object):
         slot_labels = slot_labels.cuda()
 
         if self.use_slots:
-            logits_intents, logits_slots, intent_loss, slot_loss, loss = model(input_ids=input_ids,
-                                                                               input_masks=input_masks,
-                                                                               train_idx=0, # TODO dummy
-                                                                               lengths=lengths,
-                                                                               intent_labels=intent_labels,
-                                                                               slot_labels=slot_labels)
+            logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output \
+                = model(input_ids=input_ids,
+                        input_masks=input_masks,
+                        train_idx=0,  # TODO dummy
+                        lengths=lengths,
+                        intent_labels=intent_labels,
+                        slot_labels=slot_labels)
 
         else:
-            logits_intents, intent_loss, loss = model(input_ids=input_ids,
-                                                      input_masks=input_masks,
-                                                      train_idx=0, # TODO dummy
-                                                      lengths=lengths,
-                                                      intent_labels=intent_labels)
+            logits_intents, intent_loss, loss, pooled_output = model(input_ids=input_ids,
+                                                                     input_masks=input_masks,
+                                                                     train_idx=0,  # TODO dummy
+                                                                     lengths=lengths,
+                                                                     intent_labels=intent_labels)
 
         loss.backward()
 
@@ -157,7 +161,7 @@ class GEM(object):
             grads_ref = format_store_grads(pp=model.named_parameters(),
                                            grad_dims=grad_dims,
                                            cont_comp=self.cont_comp,
-                                           store=False)
+                                           store=False).cuda()
 
             # Loading g
             grads = read_saved_pickle(self.checkpoint_dir,
@@ -173,8 +177,10 @@ class GEM(object):
                                   grads_ref.unsqueeze(1))
                 new_grad = grads - (dotp / dotref) * grads_ref
 
+                print("new_grad:", new_grad.shape)
+
                 overwrite_grad(model.named_parameters(),  # this is overwritten by the function
-                               new_grad,   # these are the new gradients
+                               torch.transpose(new_grad, 0, 1),   # these are the new gradients
                                grad_dims,
                                self.cont_comp)
         else:

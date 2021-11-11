@@ -1,8 +1,6 @@
 from copy import deepcopy
 
 import torch
-from torch import nn
-from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.utils.data
 from basemodels.crf import CRFLayer
@@ -59,17 +57,18 @@ class EWC(object):
 
             self.model.zero_grad()
             if self.use_slots:
-                logits_intents, logits_slots, intent_loss, slot_loss, loss = self.model(input_ids,
-                                                                                        lengths=lengths,
-                                                                                        input_masks=input_masks,
-                                                                                        intent_labels=intent_labels,
-                                                                                        slot_labels=slot_labels)
+                logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output \
+                    = self.model(input_ids,
+                                 lengths=lengths,
+                                 input_masks=input_masks,
+                                 intent_labels=intent_labels,
+                                 slot_labels=slot_labels)
 
             else:
-                logits_intents, intent_loss, loss = self.model(input_ids,
-                                                               lengths=lengths,
-                                                               input_masks=input_masks,
-                                                               intent_labels=intent_labels)
+                logits_intents, intent_loss, loss, pooled_output = self.model(input_ids,
+                                                                              lengths=lengths,
+                                                                              input_masks=input_masks,
+                                                                              intent_labels=intent_labels)
             output_intents = logits_intents.view(1, -1)
             label_intents = output_intents.max(1)[1].view(-1)
             loss = torch.nn.CrossEntropyLoss()(output_intents, label_intents)
