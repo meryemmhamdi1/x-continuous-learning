@@ -1,28 +1,9 @@
 #!/usr/bin/env bash
-. scripts/hyperparam.config
-. scripts/paths.config
-
-USE_SLOTS=${1:-"yes"}
-TRANS_MODEL=${2:-"BertBaseMultilingualCased"}
-STREAM_SETUP=${3:-"cll"}
-ORDER_CLASS=${4:-0}
-CIL_STREAM_LANG=${5:-"en"}
-ORDER_LANG=${6:-0}
-ORDER_STR=${7:-"en de fr hi es th"}
-CONT_LEARN_ALG=${8:-"vanilla"}
-MODEL_EXPANSION_OPT=${9:-"single_head"}
-TRANS_LAYERS=${10:-"all"}
-ADAPTER_LAYERS=${11:-"0 1 2 3 4 5 6"}
-FREEZE_TYPE=${12:-"none"}
-FREEZE_FIRST=${13:-"yes"}
-SEED=${14:-42}
-CONT_COMP=${15:-"trans intent slot"}
-ADAPTER_TYPE=${16:-"madx"}
 
 helpFunction()
 {
    echo "Multi-purpose program to run different versions/setups of continuous learning"
-   echo "Usage: $0 -a USE_SLOTS -b TRANS_MODEL -c STREAM_SETUP -d ORDER_CLASS -e ORDER_LANG -f ORDER_STR -g CONT_LEARN_ALG\
+   echo "Usage: $0 -a USE_SLOTS -b TRANS_MODEL -c STREAM_SETUP -d ORDER_CLASS -e ORDER_LANG -f ORDER_LST -g CONT_LEARN_ALG\
                 -h MODEL_EXPANSION_OPT -i TRANS_LAYERS -j ADAPTER_LAYERS -k FREEZE_TYPE -l FREEZE_FIRST\
                 and -m SEED"
    echo -e "\t-a USE_SLOTS:\
@@ -138,7 +119,7 @@ ORDER_CLASS=${4:-0}
 CIL_STREAM_LANG=${5:-"en"}
 ORDER_LANG=${6:-0}
 ORDER_STR=${7:-"en de fr hi es th"}
-CONT_LEARN_ALG=${8:-"vanilla"}
+CONT_LEARN_ALG=${8:-"er"}
 MODEL_EXPANSION_OPT=${9:-"single_head"}
 TRANS_LAYERS=${10:-"all"}
 ADAPTER_LAYERS=${11:-"0 1 2 3 4 5 6"}
@@ -147,7 +128,10 @@ FREEZE_FIRST=${13:-"yes"}
 SEED=${14:-42}
 CONT_COMP=${15:-"trans intent slot"}
 ADAPTER_TYPE=${16:-"MADX"}
-
+STORING_TYPE=${17:-"ring"}
+SAMPLING_TYPE=${18:-"random"}
+MAX_MEM_SZ=${19:-6000}
+SAMPLING_K=${20:-10}
 
 ## Base Model Options
 BASE_MODEL_OPTIONS=""
@@ -159,11 +143,11 @@ fi
 DATA_OPTIONS=""
 
 if [ $STREAM_SETUP == "cil" ] || [ $STREAM_SETUP == "multi-incr-cil" ] || [ $STREAM_SETUP == "cil-other" ]; then
-    DATA_OPTIONS=" --order_class "$ORDER_CLASS
+    DATA_OPTIONS=" --order_class "$ORDER_CLASS" --order_lst "$ORDER_STR
 elif [ $STREAM_SETUP == "cll" ] || [ $STREAM_SETUP == "multi-incr-cll" ]; then
-    DATA_OPTIONS=" --order_lang "$ORDER_LANG
+    DATA_OPTIONS=" --order_lang "$ORDER_LANG" --order_lst "$ORDER_STR
 elif [ $STREAM_SETUP == "cil-ll" ]; then
-    DATA_OPTIONS="--order_class "$ORDER_CLASS" --order_lang "$ORDER_LANG
+    DATA_OPTIONS="--order_class "$ORDER_CLASS" --order_lang "$ORDER_LANG" --order_lst "$ORDER_STR
 fi
 
 ###
@@ -178,6 +162,8 @@ elif [ $CONT_LEARN_ALG == "gem" ]; then
     CONT_LEARN_OPTIONS=" --cont_learn_alg gem "
 elif [ $CONT_LEARN_ALG == "agem" ]; then
     CONT_LEARN_OPTIONS=" --cont_learn_alg gem --use_a_gem"
+elif [ $CONT_LEARN_ALG == "er" ] || [ $CONT_LEARN_ALG == "mbpa" ] || [ $CONT_LEARN_ALG == "kd-logits" ] || [ $CONT_LEARN_ALG == "kd-rep" ]; then
+    CONT_LEARN_OPTIONS=" --cont_learn_alg "$CONT_LEARN_ALG" --storing_type "$STORING_TYPE" --sampling_type "$SAMPLING_TYPE" --max_mem_sz "$MAX_MEM_SZ" --sampling_k "$SAMPLING_K
 fi
 
 ## Model Expansion Options
@@ -205,24 +191,13 @@ echo "Training " $TRANS_MODEL $STREAM_SETUP
 
 echo "    Data Options " $DATA_OPTIONS
 echo "    Base Model Options " $BASE_MODEL_OPTIONS
-echo "    Continuous Learn Options " $CONT_LEARN_OPTIONS
+echo "    Continuous Learn Options " $CONT_LEARN_ALG $CONT_LEARN_OPTIONS
 echo " MODEL_EXPANSION_OPT:" $MODEL_EXPANSION_OPT
 
 python -W ignore main.py --trans_model $TRANS_MODEL \
                          --setup_opt $STREAM_SETUP \
                          --seed $SEED \
-                         --data_root $DATA_ROOT \
-                         --out_dir $OUT_DIR \
-                         --model_root $MODEL_ROOT \
-                         --num_intent_tasks $NUM_INTENT_TASKS \
-                         --num_lang_tasks $NUM_LANG_TASKS \
-                         --epochs $EPOCHS \
-                         --batch_size $BATCH_SIZE \
-                         --adam_lr $ADAM_LR\
-                         --adam_eps $ADAM_EPS \
-                         --beta_1 $BETA_1 \
-                         --beta_2 $BETA_2 \
-                         --test_steps $TEST_STEPS \
                          --cont_comp $CONT_COMP \
                          --adapter_type $ADAPTER_TYPE \
+                         --cil_stream_lang $CIL_STREAM_LANG \
                          $DATA_OPTIONS $BASE_MODEL_OPTIONS $CONT_LEARN_OPTIONS
