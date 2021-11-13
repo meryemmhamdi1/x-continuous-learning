@@ -1,6 +1,8 @@
 import torch
 from contlearnalg.memory.ERMemory import Memory as ERMemory
 from contlearnalg.memory.ERMemory import euclid_dist
+from contlearnalg.memory.ERMemory import Example
+from consts import EPSILON
 
 
 class Memory(ERMemory):
@@ -9,7 +11,8 @@ class Memory(ERMemory):
                  total_num_tasks,
                  embed_dim,
                  storing_type="ring",
-                 sampling_type="near_n"):
+                 sampling_type="near_n",
+                 device="cpu"):
 
         """
         Fixed size but dynamically-updated as it acts as a circular buffer:
@@ -27,7 +30,8 @@ class Memory(ERMemory):
                                      total_num_tasks=total_num_tasks,
                                      embed_dim=embed_dim,
                                      storing_type=storing_type,
-                                     sampling_type=sampling_type)
+                                     sampling_type=sampling_type,
+                                     device=device)
 
     def get_neighbours(self, q, task, k):
         """
@@ -39,15 +43,19 @@ class Memory(ERMemory):
         """
         distances = []
         examples = []
-        for task_num in range(task):  # sample from all previously seen TASKS so far
+        for task_num in range(task+1):  # sample from all previously seen TASKS so far
             for intent in self.memory[task_num]:
                 for eg in self.memory[task_num][intent]:
                     # For each example in the memory, find the distance with the query example
+                    distance = euclid_dist(eg.embed, q.embed)
+                    distances.append(distance)
+                    weight = 1.0/(EPSILON*distance)
+                    eg.set_weight(weight.detach())
                     examples.append(eg)
-                    distances.append(euclid_dist(eg.embed, q.embed))
 
         distances = torch.stack(distances)
-        neighbour_keys = torch.topk(distances, k, largest=False)
+        eff_sample_sz = min(k, len(examples))
+        neighbour_keys = torch.topk(distances, eff_sample_sz, largest=False)
 
         # neighbours = examples.index_select(0, neighbour_keys)
         neighbours = [examples[key.squeeze().item()] for key in neighbour_keys[1]]
@@ -64,7 +72,7 @@ class Memory(ERMemory):
         :return:
         """
         if self.sampling_type == "random":
-            sampled = self.sample(task, sample_sz)
+            sampled = self.sample(task, sample_sz, q)
 
         else:
             # Use k-nearest neighbours

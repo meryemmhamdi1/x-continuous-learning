@@ -37,7 +37,8 @@ class Example(object):
                  y_intent,
                  y_slot,
                  distance,
-                 task_id):
+                 task_id,
+                 weight=0.0):
         # Key
         self.embed = embed
         # Values
@@ -83,7 +84,8 @@ class Memory(object):
                  total_num_tasks,
                  embed_dim,
                  storing_type,
-                 sampling_type):
+                 sampling_type,
+                 device):
         """
         Base replay memory class with different utilties that can be used for MbPA as well or any other
             episodic memory approach
@@ -98,6 +100,7 @@ class Memory(object):
         self.total_num_tasks = total_num_tasks
         self.storing_type = storing_type
         self.sampling_type = sampling_type
+        self.device = device
 
         num_intents = 1 if self.storing_type == "reservoir" else len(INTENT_TYPES)
         self.memory = init_var(total_num_tasks, num_intents, [])
@@ -105,7 +108,7 @@ class Memory(object):
         self.cluster_count = init_var(total_num_tasks, num_intents,  0)
         self.cur_sz = init_var(total_num_tasks, num_intents, 0)
 
-        self.centroids = {intent: torch.zeros(embed_dim) for intent in range(len(INTENT_TYPES))}
+        self.centroids = {intent: torch.zeros(embed_dim).to(device) for intent in range(len(INTENT_TYPES))}
         # TODO: maybe have those already computed in the first task but maybe the memory is only used in the second task
 
         # TODO: add clusters per intents and slots at the same time
@@ -189,7 +192,7 @@ class Memory(object):
                                                             task_id=task)
             self.j[task][key] += 1
 
-    def sample(self, task_num, sample_sz):
+    def sample(self, task_num, sample_sz, q=None):
         """
         Randomly samples
             # Either randomly sampled from all tasks
@@ -199,10 +202,16 @@ class Memory(object):
         """
         sampled = []
         # This one uses randomly sampled FROM ALL PREVIOUS TASKS
-        for task in range(task_num):
+        for task in range(task_num+1):
             for intent in self.memory[task]:
-                if len(self.memory[task][intent]) >= sample_sz//task_num:
-                    sampled.extend(random.sample(self.memory[task][intent], k=sample_sz//task_num))
+                eff_sample_sz = min(len(self.memory[task][intent]), sample_sz//self.total_num_tasks)
+                sampled.extend(random.sample(self.memory[task][intent], k=eff_sample_sz))
+
+        # distance
+        if q is not None:
+            for s in sampled:
+                distance = euclid_dist(s.embed, q.embed)
+                s.set_weight(1.0/(EPSILON*distance))
         return sampled
 
     def size(self):

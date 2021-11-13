@@ -57,7 +57,7 @@ class EWC(object):
 
             self.model.zero_grad()
             if self.use_slots:
-                logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output \
+                logits_intents, logits_slots, _, intent_loss, slot_loss, loss, pooled_output \
                     = self.model(input_ids,
                                  lengths=lengths,
                                  input_masks=input_masks,

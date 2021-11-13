@@ -132,7 +132,7 @@ class GEM(object):
         slot_labels = slot_labels.cuda()
 
         if self.use_slots:
-            logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output \
+            logits_intents, logits_slots, _, intent_loss, slot_loss, loss, pooled_output \
                 = model(input_ids=input_ids,
                         input_masks=input_masks,
                         train_idx=0,  # TODO dummy

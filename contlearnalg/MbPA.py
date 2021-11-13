@@ -1,7 +1,9 @@
-
 import torch
-from copy import deepcopy
 from torch.optim import Adam
+
+# from copy import deepcopy
+from basemodels.transNLUCRF import TransNLUCRF
+from tqdm import tqdm
 
 
 def freeze_trans_get_weights(model):
@@ -15,13 +17,37 @@ def freeze_trans_get_weights(model):
 class MBPA(object):
     def __init__(self,
                  args,
-                 device):
+                 device,
+                 model_trans,
+                 num_tasks,
+                 num_intents,
+                 eff_num_intents_task,
+                 eff_num_slot):
         self.args = args
         self.device = device
+        self.model_trans = model_trans
+        self.num_tasks = num_tasks
+        self.num_intents = num_intents
+        self.eff_num_intents_task = eff_num_intents_task
+        self.eff_num_slot = eff_num_slot
 
     def forward(self, memory, q, train_idx, model):
         # Using local parameters different each time for each example reinitialized deepcopy
-        adaptive_model = deepcopy(model)
+        adaptive_model = TransNLUCRF(args=self.args,
+                                     trans_model=self.model_trans,
+                                     num_tasks=self.num_tasks,
+                                     num_intents=self.num_intents,
+                                     eff_num_intents_task=self.eff_num_intents_task,
+                                     device=self.device,
+                                     num_slots=self.eff_num_slot)
+
+        # Initialize adaptive_model from the model
+        model_dict = model.state_dict()
+        adaptive_model.load_state_dict(model_dict)
+        if self.device != torch.device("cpu"):
+            adaptive_model.cuda()
+        # Using local parameters different each time for each example reinitialized deepcopy
+        # adaptive_model = deepcopy(model)
         adaptive_examples = memory.sample_for_q(q, train_idx, self.args.sampling_k)
 
         adaptive_model.train()
@@ -37,8 +63,8 @@ class MBPA(object):
                                   lr=self.args.adaptive_adam_lr)
 
         # Train the model for a few epochs over the batch retrieved from the memory
-        for _ in range(self.args.adaptive_epochs):
-            for eg in adaptive_examples:
+        for _ in tqdm(range(self.args.adaptive_epochs)):
+            for eg in tqdm(adaptive_examples):
                 ada_input_ids = torch.unsqueeze(eg.x["input_ids"], dim=0)
                 ada_input_masks = torch.unsqueeze(eg.x["input_masks"], dim=0)
                 ada_lengths = torch.unsqueeze(eg.x["lengths"], dim=0)
@@ -46,11 +72,18 @@ class MBPA(object):
                 ada_y_slots = torch.unsqueeze(eg.y_slot, dim=0)
                 ada_i_task = eg.task_id
 
-                # forward pass on each item in the memory
+                if self.device != torch.device("cpu"):
+                    ada_input_ids = ada_input_ids.cuda()
+                    ada_input_masks = ada_input_masks.cuda()
+                    ada_lengths = ada_lengths.cuda()
+                    ada_y_intents = ada_y_intents.cuda()
+                    ada_y_slots = ada_y_slots.cuda()
+
+                # Forward pass on each item in the memory
                 adaptive_optimizer.zero_grad()
 
                 if self.args.use_slots:
-                    _, _, _, _, adaptive_loss, _ = adaptive_model(input_ids=ada_input_ids,
+                    _, _, _,_, _, adaptive_loss, _ = adaptive_model(input_ids=ada_input_ids,
                                                                   input_masks=ada_input_masks,
                                                                   train_idx=ada_i_task,
                                                                   lengths=ada_lengths,
@@ -69,15 +102,14 @@ class MBPA(object):
 
                 # Compute the regularization term using adaptive_weights
                 # loss with respect to only classifier model
-                count = 0
                 for base_param, curr_param in zip(base_weights, adaptive_weights):
                     if curr_param.requires_grad:
                         delta_loss_x += (curr_param-base_param).pow(2).sum()
-                        count += 1
 
                 # Total loss due to log likelihood and weight restraint
-                total_loss = self.args.beta*delta_loss_x + eg.weight * adaptive_loss
-                total_loss.backward(retain_graph=True)
+                total_loss = self.args.beta*delta_loss_x + eg.weight.detach() * adaptive_loss
+                total_loss = total_loss.mean()
+                total_loss.backward()
 
                 adaptive_optimizer.step()
 
