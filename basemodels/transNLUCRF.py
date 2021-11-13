@@ -120,24 +120,23 @@ class TransNLUCRF(TransNLU):
         loss = intent_loss
 
         if self.use_slots:
-            logits_slots = self.slot_classifier(lm_output[0])
-            slot_loss = self.crf_layer.loss(logits_slots, slot_labels)
+            logits_slots_ = self.slot_classifier(lm_output[0])
+            slot_loss = self.crf_layer.loss(logits_slots_, slot_labels)
 
             loss += slot_loss
 
-            logits_slots = self.crf_decode(logits_slots, lengths)
+            logits_slots = self.crf_decode(logits_slots_, lengths)
 
         if intent_labels is not None:
             if slot_labels is None:
                 return logits_intents, intent_loss, loss
 
-            return logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output
+            return logits_intents, logits_slots, logits_slots_, intent_loss, slot_loss, loss, pooled_output
         else:
             if self.use_slots:
                 return intent_loss, slot_loss, loss, pooled_output
 
             return intent_loss, loss, pooled_output
-
 
     def crf_decode(self, inputs, lengths):
         """ crf decode
