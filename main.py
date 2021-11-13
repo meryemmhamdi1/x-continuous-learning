@@ -7,12 +7,16 @@ from consts import INTENT_TYPES, SLOT_TYPES
 from contlearnalg.EWC_grads import EWC
 from contlearnalg.GEM import GEM
 from contlearnalg.MbPA import MBPA
-from utils import variable, format_store_grads, name_in_list, logger, import_from, evaluate_report, set_optimizer
+from contlearnalg.ER import ER
+from contlearnalg.KD import KD
+from utils import variable, format_store_grads, name_in_list, logger, import_from, evaluate_report, set_optimizer, \
+    get_config_params
 
 # Torch
 import torch
 from torch import nn
 import torch.utils.data
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from transformers import set_seed
@@ -159,7 +163,7 @@ def train(optimizer,
     saved_grads = None
 
     if args.use_slots:
-        logits_intents, logits_slots, intent_loss, slot_loss, loss, pooled_output = model(input_ids=input_ids,
+        logits_intents, logits_slots, logits_slots_, intent_loss, slot_loss, loss, pooled_output = model(input_ids=input_ids,
                                                                                           input_masks=input_masks,
                                                                                           train_idx=i_task,
                                                                                           lengths=lengths,
@@ -177,7 +181,7 @@ def train(optimizer,
 
         writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.mean(), num_steps*epoch)
 
-    if args.cont_learn_alg in ["er", "mbpa"]:
+    if args.cont_learn_alg in ["er", "mbpa", "kd-logits", "kd-rep"]:
         memory.update(batch, pooled_output, i_task)
 
     if args.cont_learn_alg == "ewc":
@@ -186,8 +190,8 @@ def train(optimizer,
                                                                    model)
 
         loss = loss.mean()
-
         loss.backward()
+        optimizer.step()
 
         params = {n: p for n, p in model.named_parameters() if p.requires_grad}
 
@@ -205,6 +209,8 @@ def train(optimizer,
     elif args.cont_learn_alg == "gem":
         loss = loss.mean()
         loss.backward()
+        optimizer.step()
+
         format_store_grads(pp=model.named_parameters(),
                            grad_dims=grad_dims,
                            cont_comp=args.cont_comp,
@@ -226,62 +232,56 @@ def train(optimizer,
         # Backward pass over the MAIN training
         loss = loss.mean()
         loss.backward()
+        optimizer.step()
 
         if i_task > 0:
             # memory training is interleaved with the main training so that the process doesn't overfit to the memory
             if num_steps % 10 == 0:
-                # Randomly sample from the memory
-                sampled_to_replay = memory.sample(args.sampling_k, memory)
-                for eg in sampled_to_replay:
-                    er_input_ids = torch.unsqueeze(eg.x["input_ids"], dim=0)
-                    er_input_masks = torch.unsqueeze(eg.x["input_masks"], dim=0)
-                    er_lengths = torch.unsqueeze(eg.x["lengths"], dim=0)
-                    er_y_intents = torch.unsqueeze(eg.y_intent, dim=0)
-                    er_y_slots = torch.unsqueeze(eg.y_slot, dim=0)
-                    er_i_task = eg.i_task
-
-                    if device != torch.device("cpu"):
-                        er_input_ids = er_input_ids.cuda()
-                        er_input_masks = er_input_masks.cuda()  # TODO compare when you use this versus when you don't
-                        er_lengths = er_lengths.cuda()
-                        er_y_intents = er_y_intents.cuda()
-                        er_y_slots = er_y_slots.cuda()
-
-                    if args.use_slots:
-                        _, _, intent_loss_er, slot_loss_er, loss_er, _ \
-                            = model(input_ids=er_input_ids,
-                                    input_masks=er_input_masks,
-                                    train_idx=er_i_task,
-                                    lengths=er_lengths,
-                                    intent_labels=er_y_intents,
-                                    slot_labels=er_y_slots)
-
-                        writer.add_scalar('memory_er_intent_loss_'+str(i_task), intent_loss_er.mean(), num_steps*epoch)
-                        writer.add_scalar('memory_er_slot_loss_'+str(i_task), slot_loss_er.mean(), num_steps*epoch)
-                    else:
-                        _, intent_loss_er, loss_er, _ = model(input_ids=er_input_ids,
-                                                              input_masks=er_input_masks,
-                                                              train_idx=er_i_task,
-                                                              lengths=er_lengths,
-                                                              intent_labels=er_y_intents)
-
-                        writer.add_scalar('memory_er_intent_loss_'+str(i_task), intent_loss_er.mean(), num_steps*epoch)
-
-                    # Backward pass over the experience replay example
-                    loss_er = loss_er.mean()
-                    loss_er.backward()
+                cont_learn_alg.forward(memory,
+                                       model,
+                                       optimizer,
+                                       i_task,
+                                       epoch,
+                                       num_steps)
 
         params = None
         saved_grads = None
+
+    elif "kd" in args.cont_learn_alg:
+        if i_task > 0:
+            # memory training with NO BACKWARD just saving the logits or the embeddings
+            if num_steps % 10 == 0:
+                kd_loss = cont_learn_alg.forward(memory,
+                                                 model,
+                                                 optimizer,
+                                                 i_task,
+                                                 epoch,
+                                                 num_steps,
+                                                 logits_intents,
+                                                 logits_slots_,
+                                                 pooled_output)
+
+                total_loss = loss.mean() + kd_loss.mean()  # kd_loss will take both logits into consideration
+                app_log.info(kd_loss)
+                total_loss.backward()
+                optimizer.step()
+            else:
+                loss = loss.mean()
+                loss.backward()
+                optimizer.step()
+        else:
+            loss = loss.mean()
+            loss.backward()
+            optimizer.step()
 
     else:
         loss = loss.mean()
-        loss.backward()
+        loss.backward() #retain_graph=True
+        optimizer.step()
 
         params = None
         saved_grads = None
 
-    optimizer.step()
     for i in range(args.batch_size):
         intent = intent_labels[i].squeeze().item()
         intent_embeddings[intent].append(pooled_output[i])
@@ -344,7 +344,8 @@ def set_out_dir():
 
         cont_alg_option = args.cont_learn_alg
         if args.cont_learn_alg != "vanilla":
-            cont_alg_option += "_"+str(args.old_task_prop)
+            cont_alg_option += "_memsz-"+str(args.max_mem_sz)+"_storage-"+str(args.storing_type)\
+                               +"_sampling-"+str(args.sampling_type)+"_k-"+str(args.sampling_k)
 
         if args.cont_learn_alg == "ewc":
             if args.use_online:
@@ -472,13 +473,13 @@ def train_task_epochs(model,
                 intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
                 if step_iter % args.test_steps == 0:
                     app_log.info('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
-                                                                                       intent_loss.mean(),
-                                                                                       slot_loss.mean()))
+                                                                                              intent_loss.mean(),
+                                                                                              slot_loss.mean()))
             else:
                 intent_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
                 if step_iter % args.test_steps == 0:
                     app_log.info('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
-                                                                   intent_loss.mean()))
+                                                                          intent_loss.mean()))
 
         app_log.info(">>>>>>> Dev Performance >>>>>")
         dev_out_path = None
@@ -488,6 +489,8 @@ def train_task_epochs(model,
 
         if dev_stream[train_idx]['size'] > 0:
             _, dev_perf = evaluate_report(dataset,
+                                          memory,
+                                          cont_learn_alg,
                                           dev_stream[train_idx],
                                           model,
                                           train_lang,
@@ -523,6 +526,7 @@ def train_task_epochs(model,
                 if test_stream[test_subtask_lang]['size'] > 0:
                     metrics[test_subtask_lang], _ = evaluate_report(dataset,
                                                                     memory,
+                                                                    cont_learn_alg,
                                                                     test_stream[test_subtask_lang],
                                                                     best_model,
                                                                     train_lang,
@@ -556,6 +560,8 @@ def train_task_epochs(model,
 def test_at_end_training(best_model,
                          dataset,
                          test_stream,
+                         memory,
+                         cont_learn_alg,
                          train_idx,
                          train_lang,
                          num_steps,
@@ -572,6 +578,8 @@ def test_at_end_training(best_model,
     for test_idx, test_subtask_lang in enumerate(test_stream):
         if test_stream[test_subtask_lang]['size'] > 0:
             metrics[test_subtask_lang], _ = evaluate_report(dataset,
+                                                            memory,
+                                                            cont_learn_alg,
                                                             test_stream[test_subtask_lang],
                                                             best_model,
                                                             train_lang,
@@ -582,6 +590,7 @@ def test_at_end_training(best_model,
                                                             writer,
                                                             args,
                                                             app_log,
+                                                            device,
                                                             name="test",
                                                             out_path=os.path.join(results_dir,
                                                                                   "End_test_perf-train_"+train_lang
@@ -703,12 +712,73 @@ def run(results_dir, args, app_log):
     if device != torch.device("cpu"):
         model.cuda()
 
+    ## Continuous Learning Algorithms
+    if args.cont_learn_alg == "ewc":
+        cont_learn_alg = EWC(device,
+                             checkpoint_dir,
+                             args.use_online,
+                             args.gamma_ewc,
+                             args.cont_comp)
+
+    elif args.cont_learn_alg == "gem":
+        cont_learn_alg = GEM(dataset,
+                             args.use_slots,
+                             args.use_a_gem,
+                             args.a_gem_n,
+                             checkpoint_dir,
+                             args.cont_comp)
+    elif args.cont_learn_alg in ["er"]:
+        cont_learn_alg = ER(args,
+                            device,
+                            writer)
+    elif "kd" in args.cont_learn_alg:
+        cont_learn_alg = KD(args,
+                            device,
+                            writer,
+                            kd_mode=args.cont_learn_alg.split("-")[1])
+    elif args.cont_learn_alg == "mbpa":
+        cont_learn_alg = MBPA(args,
+                              device,
+                              model_trans,
+                              num_tasks,
+                              num_intents,
+                              eff_num_intents_task,
+                              eff_num_slot)
+    else:
+        cont_learn_alg = None
+
+    if args.cont_learn_alg in ["er", "mbpa"]:
+        memory_mod = importlib.import_module(
+            'contlearnalg.memory.'+args.cont_learn_alg.upper()+"Memory")
+
+        memory = memory_mod.Memory(max_mem_sz=args.max_mem_sz,
+                                   total_num_tasks=len(train_stream),
+                                   embed_dim=model.trans_model.config.hidden_size,
+                                   storing_type=args.storing_type,
+                                   sampling_type=args.sampling_type,
+                                   device=device)
+    elif args.cont_learn_alg in ["kd-logits", "kd-rep"]:
+        memory_mod = importlib.import_module(
+            'contlearnalg.memory.ERMemory')
+
+        memory = memory_mod.Memory(max_mem_sz=args.max_mem_sz,
+                                   total_num_tasks=len(train_stream),
+                                   embed_dim=model.trans_model.config.hidden_size,
+                                   storing_type=args.storing_type,
+                                   sampling_type=args.sampling_type,
+                                   device=device)
+
+    else:
+        memory = None
+
     if args.random_pred:
         metrics = {lang: {} for lang in dataset.test_stream}
         for lang in test_stream:
             print("HERE;", lang)
         for test_idx, test_subtask_lang in enumerate(test_stream):
             metrics[test_subtask_lang], _ = evaluate_report(dataset,
+                                                            memory,
+                                                            cont_learn_alg,
                                                             test_stream[test_subtask_lang],
                                                             model,
                                                             args.cil_stream_lang,
@@ -736,39 +806,6 @@ def run(results_dir, args, app_log):
     for n, p in model.named_parameters():
         if name_in_list(args.cont_comp, n):
             grad_dims.append(p.data.numel())
-
-    ## Continuous Learning Algorithms
-    if args.cont_learn_alg == "ewc":
-        cont_learn_alg = EWC(device,
-                             checkpoint_dir,
-                             args.use_online,
-                             args.gamma_ewc,
-                             args.cont_comp)
-
-    elif args.cont_learn_alg == "gem":
-        cont_learn_alg = GEM(dataset,
-                             args.use_slots,
-                             args.use_a_gem,
-                             args.a_gem_n,
-                             checkpoint_dir,
-                             args.cont_comp)
-    elif args.cont_learn_alg == "mbpa":
-        cont_learn_alg = MBPA(args,
-                              device)
-    else:
-        cont_learn_alg = None
-
-    if args.cont_learn_alg in ["er", "mbpa"]:
-        memory_mod = importlib.import_module(
-            'contlearnalg.memory.'+args.cont_learn_alg.upper()+"Memory")
-
-        memory = memory_mod.Memory(max_mem_sz=args.max_mem_sz,
-                                   total_num_tasks=len(train_stream),
-                                   embed_dim=model.trans_model.config.hidden_size,
-                                   storing_type=args.storing_type,
-                                   sampling_type=args.sampling_type)
-    else:
-        memory = None
 
     prior_mbert = [None for _ in train_stream]
     prior_intents = [None for _ in train_stream]
@@ -969,6 +1006,8 @@ def run(results_dir, args, app_log):
             test_at_end_training(best_model,
                                  dataset,
                                  test_stream,
+                                 memory,
+                                 cont_learn_alg,
                                  train_idx,
                                  train_lang,
                                  num_steps,
@@ -1029,6 +1068,8 @@ def run(results_dir, args, app_log):
         test_at_end_training(best_model,
                              dataset,
                              test_stream,
+                             memory,
+                             cont_learn_alg,
                              train_idx,
                              train_lang,
                              num_steps,
@@ -1053,6 +1094,8 @@ if __name__ == "__main__":
     add_model_expansion_arguments(parser)
     cont_learn_arguments(parser)
     args = parser.parse_args()
+
+    args = get_config_params(args)
 
     set_seed(args.seed)
     results_dir = set_out_dir()
