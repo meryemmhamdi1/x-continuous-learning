@@ -8,6 +8,7 @@ import torch
 from torch.autograd import Variable
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR as SchedulerLR
+import configparser
 
 
 def set_optimizer(args, parameters):
@@ -107,7 +108,7 @@ def import_from(module, name):
     module = __import__(module, fromlist=[name])
     return getattr(module, name)
 
-## EVALUATION
+
 def nlu_evaluation(dataset,
                    memory,
                    cont_learn_alg,
@@ -207,6 +208,7 @@ def nlu_evaluation(dataset,
                         y_slot=slot_labels,
                         distance=0.0,
                         task_id=test_idx)
+
             eval_model = cont_learn_alg.forward(memory, q, train_idx, model)
         else:
             eval_model = model
@@ -214,10 +216,9 @@ def nlu_evaluation(dataset,
         eval_model.eval()
         # TODO test this in particular
         # TODO do we change anything at all in the original model just to make sure?
-        print("EVAL MODE")
         if use_slots:
             with torch.no_grad():
-                intent_logits, slot_logits, intent_loss, slot_loss, loss, pooled_output \
+                intent_logits, slot_logits, _, intent_loss, slot_loss, loss, pooled_output \
                     = eval_model(input_ids=input_ids,
                                  input_masks=input_masks,
                                  train_idx=test_idx,
@@ -320,6 +321,7 @@ def nlu_evaluation(dataset,
 
 def evaluate_report(dataset,
                     memory,
+                    cont_learn_alg,
                     data_stream,
                     model,
                     train_task,  # lang or subtask
@@ -341,6 +343,7 @@ def evaluate_report(dataset,
 
     outputs = nlu_evaluation(dataset,
                              memory,
+                             cont_learn_alg,
                              data_stream["examples"],
                              data_stream["size"],
                              model,
@@ -394,3 +397,34 @@ def evaluate_report(dataset,
         writer.add_scalar(k, v, num_steps)
 
     return metrics, avg_perf
+
+
+def get_config_params(args):
+    paths = configparser.ConfigParser()
+    paths.read('scripts/paths.ini')
+
+    location = "ENDEAVOUR"
+    # location = "LOCAL"
+
+    args.data_root = str(paths.get(location, "DATA_ROOT"))
+    args.trans_model = str(paths.get(location, "TRANS_MODEL"))
+    args.out_dir = str(paths.get(location, "OUT_DIR"))
+
+    params = configparser.ConfigParser()
+    params.read('scripts/hyperparam.ini')
+
+    args.batch_size = int(params.get("HYPER", "BATCH_SIZE"))
+    args.epochs = int(params.get("HYPER", "EPOCHS"))
+    args.adam_lr = float(params.get("HYPER", "ADAM_LR"))
+    args.adam_eps = float(params.get("HYPER", "ADAM_EPS"))
+    args.beta_1 = float(params.get("HYPER", "BETA_1"))
+    args.beta_2 = float(params.get("HYPER", "BETA_2"))
+    args.epsilon = float(params.get("HYPER", "EPSILON"))
+    args.step_size = float(params.get("HYPER", "STEP_SIZE"))
+    args.gamma = float(params.get("HYPER", "GAMMA"))
+    args.test_steps = int(params.get("HYPER", "TEST_STEPS"))
+    args.num_intent_tasks = int(params.get("HYPER", "NUM_INTENT_TASKS"))  # only in case of CILIA setup
+    args.num_lang_tasks = int(params.get("HYPER", "NUM_LANG_TASKS"))  # only in case of CILIA setup
+    args.test_steps = int(params.get("HYPER", "TEST_STEPS"))
+
+    return args
