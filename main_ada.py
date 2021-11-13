@@ -5,7 +5,7 @@ import pickle
 import argparse
 import configparser
 from tqdm import tqdm
-from utils import logger, set_optimizer
+from utils import logger, set_optimizer, get_config_params
 from consts import INTENT_TYPES, SLOT_TYPES
 from sklearn.metrics import f1_score, precision_score, recall_score
 
@@ -274,7 +274,8 @@ if __name__ == "__main__":
     USE_TASK_ADAPTERS = args.use_task_adapters
     TRAIN_FROM_SCRATCH = args.train_from_scratch
     LANGUAGES = args.languages.split("_")
-    LOCATION = "cluster"  # LOCATION = "local"
+    LOCATION = "cluster"
+    LOCATION = "local"
     MODEL_NAME = "BertBaseMultilingualCased"  # or "XLMRoberta_base"
     SETUP_OPT = "cll"
     SETUP_CILLIA = "intents"
@@ -290,19 +291,7 @@ if __name__ == "__main__":
     DATA_FORMAT = "txt"
     SPLITS = ["train", "eval", "test"]
 
-    # Hyperparameters
-    BATCH_SIZE = int(config.get("HYPER", "BATCH_SIZE"))
-    EPOCHS = int(config.get("HYPER", "EPOCHS"))
-    ADAM_LR = float(config.get("HYPER", "ADAM_LR"))
-    ADAM_EPS = float(config.get("HYPER", "ADAM_EPS"))
-    BETA_1 = float(config.get("HYPER", "BETA_1"))
-    BETA_2 = float(config.get("HYPER", "BETA_2"))
-    EPSILON = float(config.get("HYPER", "EPSILON"))
-    STEP_SIZE = float(config.get("HYPER", "STEP_SIZE"))
-    GAMMA = float(config.get("HYPER", "GAMMA"))
-    TEST_STEPS = int(config.get("HYPER", "TEST_STEPS"))
-    NUM_INTENT_TASKS = int(config.get("HYPER", "NUM_INTENT_TASKS"))  # only in case of CILIA setup
-    NUM_LANG_TASKS = int(config.get("HYPER", "NUM_LANG_TASKS"))  # only in case of CILIA setup
+    args = get_config_params(args)
 
     print("DEVICE:", DEVICE, "FROZEN_BERT:", FROZEN_BERT, "USE_TASK_ADAPTERS:", USE_TASK_ADAPTERS,
           "LANGUAGES:", args.languages)
@@ -364,8 +353,8 @@ if __name__ == "__main__":
                          ORDER_CLASS,
                          ORDER_LANG,
                          ORDER_LST,
-                         NUM_INTENT_TASKS,
-                         NUM_LANG_TASKS,
+                         args.num_intent_tasks,
+                         args.num_lang_tasks,
                          intent_types=INTENT_TYPES,
                          slot_types=SLOT_TYPES)
 
@@ -403,13 +392,6 @@ if __name__ == "__main__":
 
     metrics = {"train_"+lang: {"test_"+lang: {} for lang in LANGUAGES} for lang in LANGUAGES}
 
-    args.beta_1 = BETA_1
-    args.beta_2 = BETA_2
-    args.adam_eps = ADAM_EPS
-    args.adam_lr = ADAM_LR
-    args.step_size = STEP_SIZE
-    args.gamma = GAMMA
-
     optimizer, scheduler = set_optimizer(args, list(model.parameters()) + list(crf_layer.parameters()))
     model.zero_grad()
     crf_layer.zero_grad()
@@ -421,7 +403,7 @@ if __name__ == "__main__":
     for train_idx, train_subtask_lang in enumerate(train_stream):
         train_examples = train_subtask_lang["examples"]
         train_lang = train_subtask_lang["lang"]
-        num_iter = train_subtask_lang["size"]//BATCH_SIZE
+        num_iter = train_subtask_lang["size"]//args.batch_size
 
         if USE_SLOTS:
             if USE_TASK_ADAPTERS:
@@ -454,7 +436,7 @@ if __name__ == "__main__":
             if v.requires_grad and "bert.encoder.layer.0." in k:
                 app_log.info("TRAINING Parameter %s, required_grad: %r" % (k, v.requires_grad))
 
-        for epoch in tqdm(range(EPOCHS)):
+        for epoch in tqdm(range(args.epochs)):
             for step_iter in range(num_iter):
                 num_steps += 1
 
@@ -462,7 +444,7 @@ if __name__ == "__main__":
                 model.train()
                 crf_layer.train()
 
-                batch, _ = dataset.next_batch(BATCH_SIZE, train_examples)
+                batch, _ = dataset.next_batch(args.batch_size, train_examples)
 
                 input_ids, _, token_type_ids, input_masks, intent_labels, slot_labels, input_texts = batch
 
@@ -564,7 +546,7 @@ if __name__ == "__main__":
         with open(os.path.join(metrics_dir, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
             pickle.dump(metrics, output_file)
 
-    with open(os.path.join(results_dir, "all_metrics_"+str(EPOCHS)+"_epochs.pickle"), "wb") as file:
+    with open(os.path.join(results_dir, "all_metrics_"+str(args.epochs)+"_epochs.pickle"), "wb") as file:
         pickle.dump(metrics, file)
 
     sys.stdout.close()
