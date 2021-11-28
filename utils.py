@@ -9,6 +9,7 @@ from torch.autograd import Variable
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR as SchedulerLR
 import configparser
+from tqdm import tqdm
 
 
 def set_optimizer(args, parameters):
@@ -121,6 +122,7 @@ def nlu_evaluation(dataset,
                    args,
                    app_log,
                    device,
+                   name,
                    out_path=None,
                    verbose=False,
                    prior_mbert=None,
@@ -182,12 +184,12 @@ def nlu_evaluation(dataset,
     slots_true_all = []
     slots_pred_all = []
 
-    for _ in range(nb_examples):
+    for _ in tqdm(range(nb_examples)):
 
         batch_one, text \
             = dataset.next_batch(1, dataset_test)
 
-        input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts = batch_one
+        input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, _ = batch_one
 
         if device != torch.device("cpu"):
             input_ids = input_ids.cuda()
@@ -196,20 +198,32 @@ def nlu_evaluation(dataset,
             intent_labels = intent_labels.cuda()
             slot_labels = slot_labels.cuda()
 
-        if args.cont_learn_alg == "mbpa":
-            """ Local adaptation of MbPA """
-            q = Example(embed=model.get_embeddings(input_ids, input_masks),
-                        x={"input_ids": input_ids,
-                           "token_type_ids": token_type_ids,
-                           "input_masks": input_masks,
-                           "lengths": lengths,
-                           "input_texts": input_texts},
-                        y_intent=intent_labels,
-                        y_slot=slot_labels,
-                        distance=0.0,
-                        task_id=test_idx)
+        if train_idx > 0 and name != "dev":
+            if args.cont_learn_alg == "mbpa":
+                """ Local adaptation of MbPA """
+                # q = Example(embed=model.get_embeddings(input_ids, input_masks),
+                #             x={"input_ids": input_ids,
+                #                "token_type_ids": token_type_ids,
+                #                "input_masks": input_masks,
+                #                "lengths": lengths,
+                #                "input_texts": input_texts},
+                #             y_intent=intent_labels,
+                #             y_slot=slot_labels,
+                #             distance=0.0,
+                #             task_id=test_idx)
 
-            eval_model = cont_learn_alg.forward(memory, q, train_idx, model)
+                q = model.get_embeddings(input_ids, input_masks)[0]
+
+                # eval_model = cont_learn_alg.forward(memory, q, train_idx, model) # Old this is up to train_idx taking into consideration all memory items in previously seen tasks
+                if args.use_reptile:
+                    if args.use_batches_reptile:
+                        eval_model = cont_learn_alg.forward_reptile_many_batches(memory, q, train_idx, model, dataset)
+                    else:
+                        eval_model = cont_learn_alg.forward_reptile_one_batch(memory, q, train_idx, model, dataset)
+                else:
+                    eval_model = cont_learn_alg.forward(memory, q, train_idx, model, dataset) # this is taking into consideration only the task we are testing from assuming we know that task.
+            else:
+                eval_model = model
         else:
             eval_model = model
 
@@ -229,7 +243,7 @@ def nlu_evaluation(dataset,
             # Slot Golden Truth/Predictions
             true_slot = slot_labels[0]
 
-            slot_logits = [slot_logits[j, :length].data.cpu().numpy() for j, length in enumerate(lengths)]
+            slot_logits = [slot_logits[j, :length].data.numpy() for j, length in enumerate(lengths)]
             pred_slot = list(slot_logits[0])
 
             true_slot_l = [dataset.slot_types[s] for s in true_slot]
@@ -282,7 +296,7 @@ def nlu_evaluation(dataset,
                     app_log.info(" ".join(slots_pred[i]))
 
                 text = sents_text[i][0] + "\t" + INTENT_TYPES[intents_true[i]] + "\t" + INTENT_TYPES[intents_pred[i]] \
-                       + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
+                    + "\t" + " ".join(slots_true[i]) + "\t" + " ".join(slots_pred[i])
                 writer.write(text+"\n")
 
     if verbose:
@@ -353,6 +367,7 @@ def evaluate_report(dataset,
                              args,
                              app_log,
                              device,
+                             name,
                              out_path=out_path,
                              verbose=verbose,
                              prior_mbert=prior_mbert,
@@ -403,15 +418,16 @@ def get_config_params(args):
     paths = configparser.ConfigParser()
     paths.read('scripts/paths.ini')
 
-    location = "ENDEAVOUR"
-    # location = "LOCAL"
+    # location = "ENDEAVOUR"
+    location = "LOCAL"
 
     args.data_root = str(paths.get(location, "DATA_ROOT"))
     args.trans_model = str(paths.get(location, "TRANS_MODEL"))
     args.out_dir = str(paths.get(location, "OUT_DIR"))
 
     params = configparser.ConfigParser()
-    params.read('scripts/hyperparam.ini')
+    print('scripts/hyperparam'+args.param_tune_idx+'.ini')
+    params.read('scripts/hyperparam'+args.param_tune_idx+'.ini')
 
     args.batch_size = int(params.get("HYPER", "BATCH_SIZE"))
     args.epochs = int(params.get("HYPER", "EPOCHS"))
