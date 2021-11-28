@@ -130,6 +130,7 @@ dmypy.json
 
 .idea/*
 .DS_Store
+
 sync_scripts/*
 scratch.py
 ideas.txt
@@ -140,5 +141,4 @@ dev_main.py
 tests/*
 
 # Results
-results_analysis/*
 backups/*
