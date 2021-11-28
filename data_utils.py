@@ -326,6 +326,8 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
     with open(data_path) as tsv_file:
         reader = csv.reader(tsv_file, delimiter="\t")
         for i, line in enumerate(reader):
+            # if i == 200:
+            #     break
             domain = line[3]
             if domain not in domain_intent_slot_dict:
                 domain_intent_slot_dict.update({domain: {}})
@@ -430,6 +432,7 @@ class NLUDataset(Dataset):
                  order_lst,
                  num_intent_tasks,
                  num_lang_tasks,
+                 memory_size=0,
                  intent_types=[],
                  slot_types=["O", "X"]):
 
@@ -454,6 +457,8 @@ class NLUDataset(Dataset):
         self.multi_head_out = multi_head_out
         self.use_mono = use_mono
 
+        self.memory_size = memory_size
+
         random.seed(self.seed)
 
         self.train_set = {lang: [] for lang in languages}
@@ -470,11 +475,11 @@ class NLUDataset(Dataset):
             self.test_set[lang] = self.read_split(lang, "test")
 
         if self.setup_option == "cil":
-            """ 
+            """
             Setup 1: Cross-CIL, Fixed LL: "Monolingual CIL"
             - Stream consisting of different combinations of classes from single language each time.
             - We then average over all languages.
-            => Each stream consists of one language each time 
+            => Each stream consists of one language each time
             """
             self.train_stream = {lang: [] for lang in languages}
             self.dev_stream = {lang: [] for lang in languages}
@@ -537,9 +542,9 @@ class NLUDataset(Dataset):
         elif self.setup_option == "cil-other":
             # TODO adjust other too
             """
-            Setup 2: CIL with other option:  incremental version of cil where previous intents' subtasks are added 
+            Setup 2: CIL with other option:  incremental version of cil where previous intents' subtasks are added
             in addition to other labels for subsequent intents' subtasks
-            
+
                 Subtask 1:
                 item | label
                 1    | x
@@ -548,7 +553,7 @@ class NLUDataset(Dataset):
                 4    | other
                 5    | other
                 6    | other
-                
+
                 Subtask 2:
                 item | label
                 1    | x
@@ -557,7 +562,7 @@ class NLUDataset(Dataset):
                 4    | y
                 5    | other
                 6    | other
-                
+
                 Subtask 3:
                 item | label
                 1    | x
@@ -566,7 +571,7 @@ class NLUDataset(Dataset):
                 4    | y
                 5    | z
                 6    | z
-            
+
             """
 
             self.train_stream = {lang: [] for lang in languages}
@@ -623,7 +628,7 @@ class NLUDataset(Dataset):
 
         elif self.setup_option == "cll":
             """
-            Setup 3: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning" 
+            Setup 3: Cross-LL, Fixed CIL: "Conventional Cross-lingual Transfer Learning or Stream learning"
             - Stream consisting of different combinations of languages.
             => Each stream sees all intents
             """
@@ -650,7 +655,7 @@ class NLUDataset(Dataset):
         elif self.setup_option == "cil-ll":
             """
             Setup 4: Cross-CIL-LL: "Cross-lingual combinations of languages/intents"
-            - Stream consisting of different combinations 
+            - Stream consisting of different combinations
             """
             self.train_stream = []
             self.dev_stream = []
@@ -744,8 +749,8 @@ class NLUDataset(Dataset):
         elif self.setup_option == "multi-incr-cil":
             """
             Setup 5: A weaker version of Multi-task/Joint Learning where we gradually fine-tune on the incremental
-            of multi-task at each class subtask independently (when testing on subtask list L, we incrementally 
-            train up to that language) 
+            of multi-task at each class subtask independently (when testing on subtask list L, we incrementally
+            train up to that language)
             """
 
             self.train_stream = {lang: [] for lang in languages}
@@ -837,8 +842,8 @@ class NLUDataset(Dataset):
         elif self.setup_option == "multi-incr-cll":
             """
             Setup 6: A weaker version of Multi-task/Joint Learning where we gradually fine-tune on the incremental
-            of multi-task at each language independently (when testing on language L we incrementally train up to that 
-            language) 
+            of multi-task at each language independently (when testing on language L we incrementally train up to that
+            language)
             """
             ordered_langs = self.partition_per_lang(self.train_set)
 
@@ -875,9 +880,48 @@ class NLUDataset(Dataset):
                 self.test_stream.update({lang: {"examples": AugmentedList(self.test_set[lang]),
                                                 "size": len(self.test_set[lang])}})
 
+        elif self.setup_option == "cll-er_kd":
+            """
+            Sanity Check for memory issues in ER/KD
+            """
+            ordered_langs = self.partition_per_lang(self.train_set)
+
+            ## Train
+            mem_langs_set = []
+            for i, lang in enumerate(ordered_langs):
+                mem_langs_set.append(ordered_langs[0:i+1])
+
+            mem_train_set = {"-".join(lang_l): [] for lang_l in mem_langs_set}
+            for i, lang_l in enumerate(mem_train_set.keys()):
+                mem_langs = lang_l.split("-")[:i]
+                for lang in mem_langs:
+                    mem_train_set[lang_l].append(self.train_set[lang][:self.memory_size//len(self.languages)])  # TODO Add portion of memory here => added each task alone
+
+            self.train_stream = [{"lang": lang_l[i],
+                                  "examples": AugmentedList(self.train_set[lang_l[i]],
+                                                            shuffle_between_epoch=True),
+                                  "size": len(self.train_set[lang_l[i]]),  # main size
+                                  "memory": [AugmentedList(mem) for mem in mem_train_set["-".join(lang_l)]],
+                                  "size_memory": [len(mem) for mem in mem_train_set["-".join(lang_l)]]# each task with its memory size but you don't need that anyways
+                                  }
+                                 for i, lang_l in enumerate(mem_langs_set)]
+
+            ## Dev
+            self.dev_stream = [{"lang": lang,
+                                "examples": AugmentedList(self.dev_set[lang],
+                                                          shuffle_between_epoch=True),
+                                "size": len(self.dev_set[lang])}
+                               for lang in ordered_langs]
+
+            ## Test
+            self.test_stream = {}
+            for lang in self.languages:
+                self.test_stream.update({lang: {"examples": AugmentedList(self.test_set[lang]),
+                                                "size": len(self.test_set[lang])}})
+
         elif self.setup_option == "multi":
             """
-            Setup 5: Multi-task/Joint Learning: train on all languages and intent classes at the same time 
+            Setup 5: Multi-task/Joint Learning: train on all languages and intent classes at the same time
             """
             train_set_all = []
             for lang in self.train_set:
@@ -1036,4 +1080,5 @@ class NLUDataset(Dataset):
         input_masks = LongTensor(input_masks)
         #attention_mask = LongTensor(attention_mask)
 
-        return (input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts), examples
+        return (input_ids, lengths, token_type_ids, input_masks, intent_labels,
+                slot_labels, input_texts, input_identifiers), examples
