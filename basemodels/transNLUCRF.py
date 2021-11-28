@@ -129,9 +129,11 @@ class TransNLUCRF(TransNLU):
 
         if intent_labels is not None:
             if slot_labels is None:
-                return logits_intents, intent_loss, loss
+                return logits_intents.to(torch.device("cpu")), intent_loss, loss
 
-            return logits_intents, logits_slots, logits_slots_, intent_loss, slot_loss, loss, pooled_output
+            return logits_intents.to(torch.device("cpu")), logits_slots.to(torch.device("cpu")), \
+                logits_slots_.to(torch.device("cpu")), intent_loss, slot_loss, loss, \
+                pooled_output.to(torch.device("cpu"))
         else:
             if self.use_slots:
                 return intent_loss, slot_loss, loss, pooled_output

@@ -47,7 +47,7 @@ class Memory(ERMemory):
             for intent in self.memory[task_num]:
                 for eg in self.memory[task_num][intent]:
                     # For each example in the memory, find the distance with the query example
-                    distance = euclid_dist(eg.embed, q.embed)
+                    distance = euclid_dist(eg.embed.to(self.device), q.embed.to(self.device))
                     distances.append(distance)
                     weight = 1.0/(EPSILON*distance)
                     eg.set_weight(weight.detach())
@@ -59,6 +59,8 @@ class Memory(ERMemory):
 
         # neighbours = examples.index_select(0, neighbour_keys)
         neighbours = [examples[key.squeeze().item()] for key in neighbour_keys[1]]
+        del examples
+        del distances
 
         return neighbours
 
@@ -73,7 +75,6 @@ class Memory(ERMemory):
         """
         if self.sampling_type == "random":
             sampled = self.sample(task, sample_sz, q)
-
         else:
             # Use k-nearest neighbours
             sampled = self.get_neighbours(q, task, sample_sz)

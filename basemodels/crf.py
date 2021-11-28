@@ -50,7 +50,7 @@ class CRFLayer(nn.Module):
             feats: Input features [batch size, sequence length, number of tags]
             tags: Target tag indices [batch size, sequence length]. Should be between
                     0 and num_tags
-            params: passed parameters (are not passed in this project use cases or at least not yet needed)
+            params (optional): passed parameters (are not passed in this project use cases or at least not yet needed)
         Returns:
             Negative log likelihood [a scalar]
         """
@@ -116,6 +116,7 @@ class CRFLayer(nn.Module):
         the given feature vector sequence
         Parameters:
             feats: Input features [batch size, sequence length, number of tags]
+            params (optional): passed parameters (are not passed in this project use cases or at least not yet needed)
         Returns:
             Total scores of shape [batch size]
         """
@@ -177,5 +178,3 @@ class CRFLayer(nn.Module):
         """
         max_val, _ = logits.max(dim)
         return max_val + (logits - max_val.unsqueeze(dim)).exp().sum(dim).log()
-
-

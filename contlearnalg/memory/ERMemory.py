@@ -108,7 +108,7 @@ class Memory(object):
         self.cluster_count = init_var(total_num_tasks, num_intents,  0)
         self.cur_sz = init_var(total_num_tasks, num_intents, 0)
 
-        self.centroids = {intent: torch.zeros(embed_dim).to(device) for intent in range(len(INTENT_TYPES))}
+        self.centroids = {intent: torch.zeros(embed_dim) for intent in range(len(INTENT_TYPES))}
         # TODO: maybe have those already computed in the first task but maybe the memory is only used in the second task
 
         # TODO: add clusters per intents and slots at the same time
@@ -200,17 +200,18 @@ class Memory(object):
         :param sample_sz: batch_size of the memory sampled
         :return:
         """
-        sampled = []
+        all = []
         # This one uses randomly sampled FROM ALL PREVIOUS TASKS
         for task in range(task_num+1):
             for intent in self.memory[task]:
-                eff_sample_sz = min(len(self.memory[task][intent]), sample_sz//self.total_num_tasks)
-                sampled.extend(random.sample(self.memory[task][intent], k=eff_sample_sz))
+                all.extend(self.memory[task][intent])
+
+        sampled = random.sample(all, k=sample_sz)
 
         # distance
         if q is not None:
             for s in sampled:
-                distance = euclid_dist(s.embed, q.embed)
+                distance = euclid_dist(s.embed.to(self.device), q.embed.to(self.device))
                 s.set_weight(1.0/(EPSILON*distance))
         return sampled
 

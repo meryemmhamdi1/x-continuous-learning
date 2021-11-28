@@ -123,7 +123,7 @@ class GEM(object):
         model.zero_grad()
         batch, _ = self.dataset.next_batch(1, self.dataset.train_stream[rand_task]["examples"])
 
-        input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts = batch
+        input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, input_identifiers = batch
 
         input_ids = input_ids.cuda()
         lengths = lengths.cuda()

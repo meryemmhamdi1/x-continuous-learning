@@ -76,4 +76,5 @@ class TransNLU(nn.Module):
 
         pooled_output = self.dropout(cls_token)
 
+
         return pooled_output

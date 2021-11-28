@@ -1,4 +1,5 @@
 import torch
+import gc
 
 
 class ER(object):
@@ -31,7 +32,7 @@ class ER(object):
                 er_y_slots = er_y_slots.cuda()
 
             if self.args.use_slots:
-                _, _, _, intent_loss_er, slot_loss_er, loss_er, _ \
+                intent_logits, slot_logits, logits_slots_, intent_loss_er, slot_loss_er, loss_er, pooled_output \
                     = model(input_ids=er_input_ids,
                             input_masks=er_input_masks,
                             train_idx=er_i_task,
@@ -39,17 +40,32 @@ class ER(object):
                             intent_labels=er_y_intents,
                             slot_labels=er_y_slots)
 
+                # slot_logits = slot_logits.to(torch.device("cpu"))
+                # logits_slots_ = logits_slots_.to(torch.device("cpu"))
+
                 self.writer.add_scalar('memory_er_intent_loss_'+str(i_task), intent_loss_er.mean(), num_steps*epoch)
                 self.writer.add_scalar('memory_er_slot_loss_'+str(i_task), slot_loss_er.mean(), num_steps*epoch)
             else:
-                _, intent_loss_er, loss_er, _ = model(input_ids=er_input_ids,
-                                                      input_masks=er_input_masks,
-                                                      train_idx=er_i_task,
-                                                      lengths=er_lengths,
-                                                      intent_labels=er_y_intents)
+                intent_logits, intent_loss_er, loss_er, pooled_output = model(input_ids=er_input_ids,
+                                                                              input_masks=er_input_masks,
+                                                                              train_idx=er_i_task,
+                                                                              lengths=er_lengths,
+                                                                              intent_labels=er_y_intents)
 
                 self.writer.add_scalar('memory_er_intent_loss_'+str(i_task), intent_loss_er.mean(), num_steps*epoch)
+
+            # pooled_output = pooled_output.to(torch.device("cpu"))
+            # intent_logits = intent_logits.to(torch.device("cpu"))
 
             loss_er = loss_er.mean()
             loss_er.backward()
             optimizer.step()
+
+            del pooled_output
+            del intent_logits
+            if self.args.use_slots:
+                del slot_logits
+                del logits_slots_
+
+            torch.cuda.empty_cache()  # TODO try this emptying of cache after backward
+            gc.collect()
