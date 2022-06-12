@@ -20,7 +20,7 @@ In this paper, we present the cross-lingual continuous learning challenge, where
 
 Our experimental analysis shows that continual learning algorithms, namely model expansion approaches, improve over naive fine-tuning and regularization-based approaches narrowing the gap with joint learning baselines. We perform extensive ablation studies to shed the light on which components are responsible for catastrophic forgetting and need further attention when it comes to continual learning. Based on that, we show that the encoder module is the culprit of catastrophic forgetting and dig deeper to check which algorithm help with with addressing that. We believe our problem setup, evaluation protocols, and analysis can inspire future studies towards continual learning for more or across downstream tasks covering different languages.
 
-![image](xcontlearndiagram.pdf)
+![image](xcontlearndiagram.png)
 
 ## 2. Requirements <a name="requirements"></a>:
 * Python 3.6 or higher.
