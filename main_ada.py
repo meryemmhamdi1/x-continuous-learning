@@ -58,7 +58,7 @@ def nlu_evaluation(dataset,
     slots_pred_all = []
 
     for _ in range(nb_examples):
-        (input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts), text \
+        (input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, _), text \
             = dataset.next_batch(1, dataset_test)
 
         if DEVICE != torch.device("cpu"):
@@ -184,7 +184,6 @@ def evaluate_report(dataset,
                     num_steps,
                     writer,
                     app_log,
-                    device,
                     name,
                     out_path=None,
                     verbose=False):
@@ -261,6 +260,9 @@ if __name__ == "__main__":
     option_params.add_argument("--seed", help="Random seed",
                                type=int, default=42)
 
+    option_params.add_argument("--param_tune_idx", help="Index of the tuning hyperparameters.",
+                               type=str, default="0")
+
     args = parser.parse_args()
 
     config = configparser.ConfigParser()
@@ -275,7 +277,7 @@ if __name__ == "__main__":
     TRAIN_FROM_SCRATCH = args.train_from_scratch
     LANGUAGES = args.languages.split("_")
     LOCATION = "cluster"
-    LOCATION = "local"
+    # LOCATION = "local"
     MODEL_NAME = "BertBaseMultilingualCased"  # or "XLMRoberta_base"
     SETUP_OPT = "cll"
     SETUP_CILLIA = "intents"
@@ -302,7 +304,7 @@ if __name__ == "__main__":
         MODEL_DIR = "bert-base-multilingual-cased"
     else:
         DATA_ROOT = "/project/jonmay_231/meryem/Datasets/MTOP/"
-        OUT_DIR = "/home1/mmhamdi/Results/x-continuous-learn/"
+        OUT_DIR = "/project/jonmay_231/meryem/OtherReproduction_Results_Debug/x-continuous-learn/"
         if MODEL_NAME == "BertBaseMultilingualCased":
             MODEL_DIR = "/project/jonmay_231/meryem/Models/mbert-with-heads"
         else:  # "XLMRoberta_base"
@@ -314,6 +316,7 @@ if __name__ == "__main__":
     results_dir = os.path.join(OUT_DIR,  # original output directory
                                SETUP_OPT,  # setup option directory
                                "adapterHUB",
+                               "SEED_"+str(args.seed),
                                args.languages,  # language order
                                (lambda x: "NLU" if x else "Intents_only")(USE_SLOTS),  # slot usage
                                MODEL_NAME,
@@ -369,10 +372,13 @@ if __name__ == "__main__":
             model.add_adapter(lang, config=lang_adapter_config)
     else:
         for lang in LANGUAGES:
-            if LOCATION == "local":
-                model.load_adapter(lang+"/wiki@ukp", config=lang_adapter_config)
+            if lang == "th":
+                model.add_adapter(lang, config=lang_adapter_config)
             else:
-                model.load_adapter(MODEL_DIR+"/"+lang+"_ada", config=lang_adapter_config)
+                if LOCATION == "local":
+                    model.load_adapter(lang+"/wiki@ukp", config=lang_adapter_config)
+                else:
+                    model.load_adapter(MODEL_DIR+"/"+lang+"_ada", config=lang_adapter_config)
 
     """ 4. Prediction Heads """
     if USE_TASK_ADAPTERS:
@@ -446,8 +452,7 @@ if __name__ == "__main__":
 
                 batch, _ = dataset.next_batch(args.batch_size, train_examples)
 
-                input_ids, _, token_type_ids, input_masks, intent_labels, slot_labels, input_texts = batch
-
+                input_ids, _, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, _ = batch
                 if DEVICE != torch.device("cpu"):
                     input_ids = input_ids.cuda()
                     token_type_ids = token_type_ids.cuda()
@@ -480,6 +485,51 @@ if __name__ == "__main__":
                 loss.backward()
                 optimizer.step()
 
+            ##### At the end of the epoch
+            num_steps += 1
+
+            optimizer.zero_grad()
+            model.train()
+            crf_layer.train()
+
+            left_over_size = train_subtask_lang["size"] % args.batch_size
+            if left_over_size > 0:
+                batch, _ = dataset.next_batch(left_over_size, train_examples)
+
+                input_ids, _, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, _ = batch
+                if DEVICE != torch.device("cpu"):
+                    input_ids = input_ids.cuda()
+                    token_type_ids = token_type_ids.cuda()
+                    input_masks = input_masks.cuda()
+                    intent_labels = intent_labels.cuda()
+                    slot_labels = slot_labels.cuda()
+
+                if USE_SLOTS:
+                    output1, output2 = model(input_ids=input_ids,
+                                             attention_mask=input_masks,
+                                             token_type_ids=token_type_ids)
+
+                    print("output1:", output1)
+                    print("output2:", output2)
+
+                    intent_loss = torch.nn.CrossEntropyLoss()(output1[0], intent_labels)
+                    slot_loss = crf_layer.loss(output2[0], slot_labels)
+                    loss = intent_loss + slot_loss
+                    app_log.info(" Training %s: (intent_loss: %f, slot_loss: %f, total loss: %f)"
+                                 % (train_lang, intent_loss, slot_loss, loss))
+                else:
+                    output1 = model(input_ids=input_ids,
+                                    attention_mask=input_masks,
+                                    token_type_ids=token_type_ids)
+
+                    intent_loss = torch.nn.CrossEntropyLoss()(output1[0], intent_labels)
+                    loss = intent_loss
+
+                loss = loss.mean()
+                loss.backward()
+                optimizer.step()
+
+            #### At the end of the epoch
             dev_out_path = os.path.join(results_dir,
                                         "Dev_perf-Epoch_" + str(epoch) + "-train_" + str(train_idx))
 

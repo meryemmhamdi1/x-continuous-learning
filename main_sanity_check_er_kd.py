@@ -5,12 +5,15 @@ from transformers_config import MODELS_dict
 from basemodels.transNLUCRF import TransNLUCRF
 from consts import INTENT_TYPES, SLOT_TYPES
 from contlearnalg.EWC_grads import EWC
-from contlearnalg.GEM import GEM
+# from contlearnalg.GEM import GEM
 from contlearnalg.MbPA import MBPA
 from contlearnalg.ER import ER
 from contlearnalg.KD import KD
 from utils import variable, format_store_grads, name_in_list, logger, import_from, evaluate_report, set_optimizer, \
     get_config_params
+import os, psutil
+from schedulers.StaticLeitnerSystem import *
+from schedulers.MeanRecallApproximation import *
 
 # Torch
 import torch
@@ -25,7 +28,6 @@ from transformers import set_seed
 import gc
 import sys
 import logstats
-import os
 import importlib
 import pickle
 import numpy as np
@@ -126,6 +128,324 @@ def compute_change(mbert1, mbert2,
 
     return mean_layers, sum_layers
 
+def test_one_batch(batch,
+                   model,
+                   train_idx,
+                   test_idx,
+                   memory,
+                   cont_learn_alg,
+                   dataset,
+                   use_slots,
+                   name="train",
+                   prior_mbert=None,
+                   prior_intents=None,
+                   prior_slots=None,
+                   prior_adapter=None):
+
+    app_log.info("Evaluating on Training batch ...")
+
+    if prior_mbert or prior_intents or prior_slots or prior_adapter:
+
+        model_dict = model.state_dict()
+
+        if prior_mbert:
+            app_log.info("Using prior_mbert")
+            ### 1. wanted keys, values are in trans_model
+            trans_model_dict = {"trans_model." + k: v for k, v in prior_mbert.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(trans_model_dict)
+
+        if prior_intents:
+            app_log.info("Using prior_intents")
+            ### 1. wanted keys, values are in trans_model
+            if "cil" in args.setup_opt:
+                intent_classifier_dict = {"intent_classifier." + str(test_idx) + "." + k: v for k, v in
+                                          prior_intents.items()}
+            else:
+                intent_classifier_dict = {"intent_classifier." + k: v for k, v in prior_intents.items()}
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(intent_classifier_dict)
+
+        if prior_slots:
+            app_log.info("Using prior_slots")
+            ### 1. wanted keys, values are in trans_model
+            slot_classifier_dict = {"slot_classifier." + k: v for k, v in prior_slots.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(slot_classifier_dict)
+
+        if prior_adapter:
+            adapter_norm_before_dict = {"adapter." + k: v for k, v in prior_adapter.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(adapter_norm_before_dict)
+
+        ### 3. load the new state dict
+        model.load_state_dict(model_dict)
+
+    intent_corrects = 0
+    sents_text = []
+
+    intents_true = []
+    intents_pred = []
+
+    slots_true = []
+    slots_pred = []
+
+    slots_true_all = []
+    slots_pred_all = []
+
+
+    input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, input_identifiers = batch
+
+    if device != torch.device("cpu"):
+        input_ids = input_ids.cuda()
+        lengths = lengths.cuda()
+        input_masks = input_masks.cuda()
+        intent_labels = intent_labels.cuda()
+        slot_labels = slot_labels.cuda()
+
+    if train_idx > 0 and name == "test":
+        if args.cont_learn_alg == "mbpa":
+            """ Local adaptation of MbPA """
+
+            q = model.get_embeddings(input_ids, input_masks)[0]
+
+            if args.use_reptile:
+                if args.use_batches_reptile:
+                    eval_model = cont_learn_alg.forward_reptile_many_batches(memory, q, train_idx, model, dataset)
+                else:
+                    eval_model = cont_learn_alg.forward_reptile_one_batch(memory, q, train_idx, model, dataset)
+            else:
+                eval_model = cont_learn_alg.forward(memory, q, train_idx, model,
+                                                    dataset)  # this is taking into consideration only the task we are testing from assuming we know that task.
+        else:
+            eval_model = model
+    else:
+        eval_model = model
+
+    eval_model.eval()
+    if use_slots:
+        with torch.no_grad():
+            intent_logits, slot_logits, _, intent_loss, slot_loss, loss, pooled_output \
+                = eval_model(input_ids=input_ids,
+                             input_masks=input_masks,
+                             train_idx=test_idx,
+                             lengths=lengths,
+                             intent_labels=intent_labels,
+                             slot_labels=slot_labels)
+
+        # Slot Golden Truth/Predictions
+        true_slot = slot_labels[0]
+
+        slot_logits = [slot_logits[j, :length].data.numpy() for j, length in enumerate(lengths)]
+        pred_slot = list(slot_logits[0])
+
+        true_slot_l = [dataset.slot_types[s] for s in true_slot]
+        pred_slot_l = [dataset.slot_types[s] for s in pred_slot]
+
+        true_slot_no_x = []
+        pred_slot_no_x = []
+
+        for j, slot in enumerate(true_slot_l):
+            if slot != "X":
+                if j < len(pred_slot_l):
+                    true_slot_no_x.append(true_slot_l[j])
+                    pred_slot_no_x.append(pred_slot_l[j])
+
+        slots_true.append(true_slot_no_x)
+        slots_pred.append(pred_slot_no_x)
+
+        slots_true_all.extend(true_slot_no_x)
+        slots_pred_all.extend(pred_slot_no_x)
+
+    else:
+        with torch.no_grad():
+            intent_logits, intent_loss, loss, pooled_output = eval_model(input_ids=input_ids,
+                                                                         input_masks=input_masks,
+                                                                         train_idx=test_idx,
+                                                                         lengths=lengths,
+                                                                         intent_labels=intent_labels)
+
+    # Intent Golden Truth/Predictions
+    true_intents = intent_labels.tolist()
+    pred_intents = intent_logits.max(1)[1]
+
+    intent_outcomes = []
+    for i in range(len(true_intents)):
+        if true_intents[i] == pred_intents[i]:
+            intent_outcomes.append(1)
+        else:
+            intent_outcomes.append(0)
+
+    assert len(intent_outcomes) == len(input_identifiers)
+
+    eval_outcomes = {input_identifiers[i]:intent_outcomes[i] for i in range(len(input_identifiers))}
+
+    return eval_outcomes
+
+def test_train_batches(dataset_train,
+                       nb_examples,
+                       model,
+                       train_idx,
+                       test_idx,
+                       memory,
+                       cont_learn_alg,
+                       dataset,
+                       use_slots,
+                       name="train",
+                       prior_mbert=None,
+                       prior_intents=None,
+                       prior_slots=None,
+                       prior_adapter=None):
+
+    app_log.info("Evaluating on Training batch ...")
+
+    if prior_mbert or prior_intents or prior_slots or prior_adapter:
+
+        model_dict = model.state_dict()
+
+        if prior_mbert:
+            app_log.info("Using prior_mbert")
+            ### 1. wanted keys, values are in trans_model
+            trans_model_dict = {"trans_model." + k: v for k, v in prior_mbert.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(trans_model_dict)
+
+        if prior_intents:
+            app_log.info("Using prior_intents")
+            ### 1. wanted keys, values are in trans_model
+            if "cil" in args.setup_opt:
+                intent_classifier_dict = {"intent_classifier." + str(test_idx) + "." + k: v for k, v in
+                                          prior_intents.items()}
+            else:
+                intent_classifier_dict = {"intent_classifier." + k: v for k, v in prior_intents.items()}
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(intent_classifier_dict)
+
+        if prior_slots:
+            app_log.info("Using prior_slots")
+            ### 1. wanted keys, values are in trans_model
+            slot_classifier_dict = {"slot_classifier." + k: v for k, v in prior_slots.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(slot_classifier_dict)
+
+        if prior_adapter:
+            adapter_norm_before_dict = {"adapter." + k: v for k, v in prior_adapter.items()}
+
+            ### 2. overwrite entries in the existing state dict
+            model_dict.update(adapter_norm_before_dict)
+
+        ### 3. load the new state dict
+        model.load_state_dict(model_dict)
+
+    intent_corrects = 0
+    sents_text = []
+
+    intents_true = []
+    intents_pred = []
+
+    slots_true = []
+    slots_pred = []
+
+    slots_true_all = []
+    slots_pred_all = []
+
+    intent_outcomes = []
+    input_identifiers_list = []
+
+    eval_outcomes = {}
+    for _ in tqdm(range(nb_examples)):
+        batch_one, text \
+            = dataset.next_batch(1, dataset_train)
+
+        input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, input_identifiers \
+            = batch_one
+
+        if device != torch.device("cpu"):
+            input_ids = input_ids.cuda()
+            lengths = lengths.cuda()
+            input_masks = input_masks.cuda()
+            intent_labels = intent_labels.cuda()
+            slot_labels = slot_labels.cuda()
+
+        if train_idx > 0 and name == "test":
+            if args.cont_learn_alg == "mbpa":
+                """ Local adaptation of MbPA """
+
+                q = model.get_embeddings(input_ids, input_masks)[0]
+
+                if args.use_reptile:
+                    if args.use_batches_reptile:
+                        eval_model = cont_learn_alg.forward_reptile_many_batches(memory, q, train_idx, model, dataset)
+                    else:
+                        eval_model = cont_learn_alg.forward_reptile_one_batch(memory, q, train_idx, model, dataset)
+                else:
+                    eval_model = cont_learn_alg.forward(memory, q, train_idx, model,
+                                                        dataset)  # this is taking into consideration only the task we are testing from assuming we know that task.
+            else:
+                eval_model = model
+        else:
+            eval_model = model
+
+        eval_model.eval()
+        if use_slots:
+            with torch.no_grad():
+                intent_logits, slot_logits, _, intent_loss, slot_loss, loss, pooled_output \
+                    = eval_model(input_ids=input_ids,
+                                 input_masks=input_masks,
+                                 train_idx=test_idx,
+                                 lengths=lengths,
+                                 intent_labels=intent_labels,
+                                 slot_labels=slot_labels)
+
+            # Slot Golden Truth/Predictions
+            true_slot = slot_labels[0]
+
+            slot_logits = [slot_logits[j, :length].data.numpy() for j, length in enumerate(lengths)]
+            pred_slot = list(slot_logits[0])
+
+            true_slot_l = [dataset.slot_types[s] for s in true_slot]
+            pred_slot_l = [dataset.slot_types[s] for s in pred_slot]
+
+            true_slot_no_x = []
+            pred_slot_no_x = []
+
+            for j, slot in enumerate(true_slot_l):
+                if slot != "X":
+                    if j < len(pred_slot_l):
+                        true_slot_no_x.append(true_slot_l[j])
+                        pred_slot_no_x.append(pred_slot_l[j])
+
+            slots_true.append(true_slot_no_x)
+            slots_pred.append(pred_slot_no_x)
+
+            slots_true_all.extend(true_slot_no_x)
+            slots_pred_all.extend(pred_slot_no_x)
+        else:
+            with torch.no_grad():
+                intent_logits, intent_loss, loss, pooled_output = eval_model(input_ids=input_ids,
+                                                                             input_masks=input_masks,
+                                                                             train_idx=test_idx,
+                                                                             lengths=lengths,
+                                                                             intent_labels=intent_labels)
+
+        # Intent Golden Truth/Predictions
+        true_intent = intent_labels.squeeze().item()
+        pred_intent = intent_logits.squeeze().max(0)[1]
+
+        if true_intent == pred_intent:
+            intent_outcome = 1
+        else:
+            intent_outcome = 0
+
+        eval_outcomes.update({input_identifiers[0]: intent_outcome})
+
+    return eval_outcomes
+
 
 def train(batch_left_size,
           optimizer,
@@ -147,6 +467,8 @@ def train(batch_left_size,
           num_intents,
           eff_num_intents_task,
           eff_num_slot,
+          ltn_scheduler,
+          eval_sched_freq,  # How frequently should we evaluate and populate the scheduler
           sample_sizes=[]):
 
     optimizer.zero_grad()
@@ -157,6 +479,7 @@ def train(batch_left_size,
 
     input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, input_identifiers = batch
 
+    # print("input_identifiers:", input_identifiers)
     if device != torch.device("cpu"):
         input_ids = input_ids.cuda()
         lengths = lengths.cuda()
@@ -188,7 +511,7 @@ def train(batch_left_size,
 
         writer.add_scalar('train_intent_loss_'+str(i_task), intent_loss.detach().mean(), num_steps*epoch)
 
-    for i in range(args.batch_size):
+    for i in range(batch_left_size):
         intent = intent_labels[i].squeeze().item()
         intent_embeddings[intent].append(pooled_output[i])
 
@@ -551,10 +874,42 @@ def train(batch_left_size,
         params = None
         saved_grads = None
 
-    if args.use_slots:
-        return intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings
+    if args.use_leitner_queue:
+        """ Eval on train here and populate/update the Leitner Queue accordingly for each element in the batch """
+        if args.evaluate_one_batch:
+            """ Eval only on one batch """
+            eval_output = test_one_batch(batch,
+                                         model,
+                                         i_task,
+                                         i_task,
+                                         memory,
+                                         cont_learn_alg,
+                                         dataset,
+                                         args.use_slots)
 
-    return intent_loss, params, saved_grads, optimizer, model, intent_embeddings
+        else:
+            """ Eval on the whole training data """
+            eval_output = test_train_batches(train_examples,
+                                             train_examples_size[i_task],
+                                             model,
+                                             i_task,
+                                             i_task,
+                                             memory,
+                                             cont_learn_alg,
+                                             dataset,
+                                             args.use_slots)
+
+        ##  eval to get the outcome for each item
+        ## Generate a timestamp which is uniform for each item in the batch
+        ltn_scheduler.place_items(eval_output)
+
+        app_log.info(ltn_scheduler.rep_sched())
+
+
+    if args.use_slots:
+        return intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings, ltn_scheduler
+
+    return intent_loss, params, saved_grads, optimizer, model, intent_embeddings, ltn_scheduler
 
 
 def set_out_dir():
@@ -568,7 +923,19 @@ def set_out_dir():
                         1: "low2highclass",
                         2: "randomclass"}
 
-    results_dir = os.path.join(args.out_dir,  # original output directory
+    if args.use_leitner_queue:
+        new_out_dir = args.out_dir
+        if args.demote_to_first_deck:
+            new_out_dir = os.path.join(new_out_dir,
+                                       "DemoteFirstDeck")
+        else:
+            new_out_dir = os.path.join(new_out_dir,
+                                       "DemotePreviousDeck")
+    else:
+        new_out_dir = os.path.join(args.out_dir,
+                                   "BASELINE")
+
+    results_dir = os.path.join(new_out_dir,  # original output directory
                                args.setup_opt,  # setup option directory
                                (lambda x: "NLU" if x else "Intents_only")(args.use_slots),  # slot usage
                                args.trans_model,
@@ -580,6 +947,7 @@ def set_out_dir():
     if args.random_pred:
         results_dir = os.path.join(results_dir,
                                    "RANDOM",
+                                   "SEED_" + str(args.seed),
                                    args.cil_stream_lang,
                                    "random_init")
 
@@ -592,11 +960,13 @@ def set_out_dir():
         if args.setup_opt == "cil":
             results_dir = os.path.join(results_dir,
                                        "MONO",
+                                       "SEED_" + str(args.seed),
                                        args.cil_stream_lang,
                                        str(args.mono_index))
         else:
             results_dir = os.path.join(results_dir,
                                        "MONO",
+                                       "SEED_"+str(args.seed),
                                        args.languages[0])
 
         if not os.path.isdir(results_dir):
@@ -653,6 +1023,8 @@ def set_out_dir():
                         return "all"
                     elif "embeddings" in layer:
                         return "embed"
+                    elif "pooler" in layer:
+                        return "pool"
                     else:
                         return "enc."+layer.split(".")[2]
 
@@ -661,7 +1033,7 @@ def set_out_dir():
                 if args.multi_head_out:
                     head_options += "_out/"
 
-                head_options += "-".join(list(map(map_emb_enc_subtask, args.emb_enc_subtask_spec)))
+                head_options += "-".join(list(map(map_emb_enc_subtask, args.emb_enc_subtask_spec.split("_"))))
 
             else:
                 if args.multi_head_out:
@@ -669,7 +1041,7 @@ def set_out_dir():
 
         order_class = order_class_dict[args.order_class]
 
-        if "cil" in args.setup_opt:
+        if "cil" in args.setup_opt or "cll-k-shots" in args.setup_opt or "cll-n-ways" in args.setup_opt:
             order_class = os.path.join(order_class, args.cil_stream_lang)
 
         results_dir = os.path.join(results_dir,
@@ -704,6 +1076,7 @@ def set_out_dir():
 
 
 def train_task_epochs(model,
+                      lt_scheduler,
                       intent_embeddings,
                       optimizer,
                       grad_dims,
@@ -720,7 +1093,7 @@ def train_task_epochs(model,
                       train_lang,
                       num_steps,
                       writer,  # saving options
-                      results_dir,
+                      predictions_dir,
                       metrics_dir,
                       checkpoint_dir, #
                       model_trans,
@@ -741,10 +1114,24 @@ def train_task_epochs(model,
     params = None
     saved_grads = None
     features_examples = []
+
+    # Store the items as a dictionary where the key is the identifier
+
     for epoch in tqdm(range(args.epochs)):
         gc.collect()
         num_steps += 1
-        print("num_iter:", num_iter)
+
+        if args.use_leitner_queue:
+            next_item_ids = lt_scheduler.next_items(epoch)
+            num_iter = len(next_item_ids)//args.batch_size # depending on the output of next_items over batch size
+            shuffle = True
+            if epoch == 0:
+                shuffle = False
+            scheduler_examples = AugmentedList([dataset.get_item_by_id(id_) for id_ in next_item_ids],
+                                               shuffle_between_epoch=shuffle)
+        else:
+            scheduler_examples = train_examples
+
         for step_iter in tqdm(range(num_iter)):
             train_outputs = train(args.batch_size,
                                   optimizer,
@@ -753,7 +1140,7 @@ def train_task_epochs(model,
                                   grad_dims,
                                   cont_learn_alg,
                                   dataset,
-                                  train_examples,
+                                  scheduler_examples,
                                   memory,
                                   subtask_size,
                                   writer,
@@ -766,57 +1153,82 @@ def train_task_epochs(model,
                                   num_intents,
                                   eff_num_intents_task,
                                   eff_num_slot,
+                                  lt_scheduler,
+                                  eval_sched_freq=-1,
                                   sample_sizes=sample_sizes)
             if args.use_slots:
-                intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
-                if False:#step_iter % args.test_steps == 0:
-                    app_log.info('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
-                                                                                              intent_loss.mean(),
-                                                                                              slot_loss.mean()))
+                intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings, lt_scheduler = train_outputs
+                if step_iter % args.test_steps == 0:
+                    app_log.info('Epoch {} | Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(epoch,
+                                                                                                         step_iter,
+                                                                                                         intent_loss.mean(),
+                                                                                                         slot_loss.mean()))
             else:
-                intent_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
-                if False:#step_iter % args.test_steps == 0:
-                    app_log.info('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
-                                                                          intent_loss.mean()))
+                intent_loss, params, saved_grads, optimizer, model, intent_embeddings, lt_scheduler = train_outputs
+                if step_iter % args.test_steps == 0:
+                    app_log.info('Epoch {} | Iter {} | Intent Loss = {:.4f} '.format(epoch,
+                                                                                     step_iter,
+                                                                                     intent_loss.mean()))
 
-        left_over_size = subtask_size % args.batch_size
-        train_outputs = train(left_over_size,
-                              optimizer,
-                              intent_embeddings,
-                              model,
-                              grad_dims,
-                              cont_learn_alg,
-                              dataset,
-                              train_examples,
-                              memory,
-                              subtask_size,
-                              writer,
-                              epoch,
-                              train_idx,
-                              step_iter,
-                              checkpoint_dir,
-                              model_trans,
-                              num_tasks,
-                              num_intents,
-                              eff_num_intents_task,
-                              eff_num_slot,
-                              sample_sizes=sample_sizes)
-        if args.use_slots:
-            intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
-            if False:#step_iter % args.test_steps == 0:
-                app_log.info('Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(step_iter,
-                                                                                          intent_loss.mean(),
-                                                                                          slot_loss.mean()))
+        if args.use_leitner_queue:
+            left_over_size = len(next_item_ids) % args.batch_size
         else:
-            intent_loss, params, saved_grads, optimizer, model, intent_embeddings = train_outputs
-            if False:#step_iter % args.test_steps == 0:
-                app_log.info('Iter {} | Intent Loss = {:.4f} '.format(step_iter,
-                                                                      intent_loss.mean()))
+            left_over_size = subtask_size[train_idx] % args.batch_size
+
+        if left_over_size > 0:
+            train_outputs = train(left_over_size,
+                                  optimizer,
+                                  intent_embeddings,
+                                  model,
+                                  grad_dims,
+                                  cont_learn_alg,
+                                  dataset,
+                                  scheduler_examples,
+                                  memory,
+                                  subtask_size,
+                                  writer,
+                                  epoch,
+                                  train_idx,
+                                  step_iter,
+                                  checkpoint_dir,
+                                  model_trans,
+                                  num_tasks,
+                                  num_intents,
+                                  eff_num_intents_task,
+                                  eff_num_slot,
+                                  lt_scheduler,
+                                  eval_sched_freq=1,
+                                  sample_sizes=sample_sizes)
+            if args.use_slots:
+                intent_loss, slot_loss, params, saved_grads, optimizer, model, intent_embeddings, lt_scheduler = train_outputs
+                if step_iter % args.test_steps == 0:
+                    app_log.info('Epoch {} | Iter {} | Intent Loss = {:.4f} | Slot Loss = {:.4f}'.format(epoch,
+                                                                                                         step_iter,
+                                                                                                         intent_loss.mean(),
+                                                                                                         slot_loss.mean()))
+            else:
+                intent_loss, params, saved_grads, optimizer, model, intent_embeddings, lt_scheduler = train_outputs
+                if step_iter % args.test_steps == 0:
+                    app_log.info('Epoch {} | Iter {} | Intent Loss = {:.4f} '.format(epoch,
+                                                                                     step_iter,
+                                                                                     intent_loss.mean()))
+
+
+        if args.use_leitner_queue:
+            flag_continue = False
+            for deck in range(0, lt_scheduler.num_decks):
+                if len(lt_scheduler.decks[deck]) != 0:
+                    flag_continue = True
+
+            if not flag_continue:
+                print("Converged after epochs with all items in the last deck")
+                break
+
         app_log.info(">>>>>>> Dev Performance >>>>>")
         dev_out_path = None
         if args.save_dev_pred:
             dev_out_path = os.path.join(predictions_dir,
-                                        "Dev_perf-Epoch_" + str(epoch) + "-train_" + train_idx)
+                                        "Dev_perf-Epoch_" + str(epoch) + "-train_" + str(train_idx))
 
         if dev_stream[train_idx]['size'] > 0:
             _, dev_perf = evaluate_report(dataset,
@@ -870,15 +1282,15 @@ def train_task_epochs(model,
                                                                     app_log,
                                                                     device,
                                                                     name="test",
-                                                                    out_path=os.path.join(results_dir,
+                                                                    out_path=os.path.join(predictions_dir,
                                                                                           "Test_perf-Epoch_" + str(epoch)
                                                                                           + "-train_" + train_lang
                                                                                           + "-test_" + test_subtask_lang),
                                                                     verbose=args.verbose,
-                                                                    prior_mbert=prior_mbert[test_idx],
-                                                                    prior_intents=prior_intents[test_idx],
-                                                                    prior_slots=prior_slots[test_idx],
-                                                                    prior_adapter=prior_adapter[test_idx])
+                                                                    prior_mbert=prior_mbert[conversion_lang[test_subtask_lang]],
+                                                                    prior_intents=prior_intents[conversion_lang[test_subtask_lang]],
+                                                                    prior_slots=prior_slots[conversion_lang[test_subtask_lang]],
+                                                                    prior_adapter=prior_adapter[conversion_lang[test_subtask_lang]])
 
             with open(os.path.join(metrics_dir,
                                    "epoch_"+str(epoch)+"_metrics_"+str(train_idx)+".pickle"), "wb") \
@@ -927,10 +1339,10 @@ def test_at_end_training(best_model,
                                                                                   "End_test_perf-train_"+train_lang
                                                                                   + "-test_" + test_subtask_lang),
                                                             verbose=args.verbose,
-                                                            prior_mbert=prior_mbert[test_idx],
-                                                            prior_intents=prior_intents[test_idx],
-                                                            prior_slots=prior_slots[test_idx],
-                                                            prior_adapter=prior_adapter[test_idx])
+                                                            prior_mbert=prior_mbert[conversion_lang[test_subtask_lang]],
+                                                            prior_intents=prior_intents[conversion_lang[test_subtask_lang]],
+                                                            prior_slots=prior_slots[conversion_lang[test_subtask_lang]],
+                                                            prior_adapter=prior_adapter[conversion_lang[test_subtask_lang]])
 
     with open(os.path.join(metrics_dir, "final_metrics_"+str(train_idx)+".pickle"), "wb") as output_file:
         pickle.dump(metrics, output_file)
@@ -1003,7 +1415,7 @@ def run(results_dir, args, app_log):
     num_intents = len(dataset.intent_types)
     eff_num_slot = len(dataset.slot_types)
 
-    if args.setup_opt in ["cll", "multi-incr-cll", "cll-er_kd"]:
+    if args.setup_opt in ["cll", "multi-incr-cll", "cll-er_kd", "multi"]:
         train_stream = dataset.train_stream
         dev_stream = dataset.dev_stream
         test_stream = dataset.test_stream
@@ -1022,7 +1434,7 @@ def run(results_dir, args, app_log):
         eff_num_intents_task = eff_num_intent
     elif args.setup_opt in ["multi-incr-cll", "cll", "cll-er_kd"]:
         if len(args.order_lst) > 0:
-            num_tasks = len(args.order_lst.split(" "))
+            num_tasks = len(args.order_lst.split("_"))
         else:
             num_tasks = len(args.languages)
         eff_num_intents_task = eff_num_intent
@@ -1089,6 +1501,7 @@ def run(results_dir, args, app_log):
         metrics = {lang: {} for lang in dataset.test_stream}
         for lang in test_stream:
             print("HERE;", lang)
+        memory = None
         for test_idx, test_subtask_lang in enumerate(test_stream):
             metrics[test_subtask_lang], _ = evaluate_report(dataset,
                                                             memory,
@@ -1103,9 +1516,10 @@ def run(results_dir, args, app_log):
                                                             writer,
                                                             args,
                                                             app_log,
+                                                            device,
                                                             name="init",
-                                                            out_path=os.path.join(predictions_dir,
-                                                                                  "initial_perf.txt"),
+                                                            out_path=os.path.join(prediction_dir,
+                                                                                  "initial_perf_" + test_subtask_lang + ".txt"),
                                                             verbose=args.verbose)
 
         with open(os.path.join(metrics_dir, "initial_metrics.pickle"), "wb") as output_file:
@@ -1127,15 +1541,27 @@ def run(results_dir, args, app_log):
     prior_adapter = [None for _ in train_stream]
 
     if args.multi_head_in:
-        if args.emb_enc_subtask_spec == ["all"]:
+        if args.emb_enc_subtask_spec.split("_") == ["all"]:
+            print("-------WE ARE HERE in ALLLLLL")
             prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
                                                                                             model_name)).
                             named_parameters()} for _ in train_stream]
+
+            print("prior_mbert[0]:", prior_mbert[0].keys())
         else:
+            # args.emb_spec_subtask_spec = "encoder.layer.0._encoder.layer.1._encoder.layer.2._encoder.layer.3._encoder.layer.4._encoder.layer.5._encoder.layer.6._encoder.layer.7._encoder.layer.8."
+            print("-------WE ARE HERE in COOOMPONEEEENTS args.emb_spec_subtask_spec: ", args.emb_enc_subtask_spec)
             prior_mbert = [{k: v for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root,
                                                                                             model_name)).
-                           named_parameters() if name_in_list(args.emb_enc_subtask_spec, k)}
+                           named_parameters() if name_in_list(args.emb_enc_subtask_spec.split("_"), k)}
                            for _ in train_stream]
+
+
+
+            for k, v in model_trans_alias.from_pretrained(os.path.join(args.model_root, model_name)).named_parameters():
+                print("k:", k, " name_in_list(args.emb_enc_subtask_spec, k):", name_in_list(args.emb_enc_subtask_spec.split("_"), k))
+            print("prior_mbert[0]:", prior_mbert[0].keys())
+
 
     if args.multi_head_out:
         # TODO change to accommodate different numbers of intents
@@ -1154,7 +1580,7 @@ def run(results_dir, args, app_log):
         prior_adapter = [{k: v for k, v in Adapter(model_trans.config.hidden_size).named_parameters()}
                          for _ in train_stream]
 
-    if args.setup_opt in ["cll", "multi-incr-cll", "cil", "cil-other", "multi-incr-cil", "cll-er_kd"]:
+    if args.setup_opt in ["cll", "multi-incr-cll", "cil", "cil-other", "multi-incr-cil", "cll-er_kd", "cll-equal", "cll-equal-er_kd", "cll-k-shots", "cll-n-ways"]:
         """ Continuous Learning Scenarios """
 
         sample_sizes = []
@@ -1178,6 +1604,7 @@ def run(results_dir, args, app_log):
         intent_embeddings = {intent: [] for intent in range(len(INTENT_TYPES))}
 
         for train_idx, train_subtask_lang in enumerate(train_stream):
+            print("train_idx:", train_idx, " train_subtask_lang:", train_subtask_lang)
             if train_subtask_lang["size"] == 0:
                 app_log.warning("Skipped subtask/language: %d", train_idx)
                 continue
@@ -1186,7 +1613,17 @@ def run(results_dir, args, app_log):
             num_iter = train_subtask_lang["size"]//args.batch_size # TODO add samples that are not covered at the end of the batch
             train_lang = train_subtask_lang["lang"]
             train_examples = train_subtask_lang["examples"]
-            if args.setup_opt == "cll-er_kd":
+
+            if args.use_leitner_queue:
+                lt_scheduler = LeitnerQueue(num_decks=5,
+                                            dataset=dataset,
+                                            train_examples=train_examples,
+                                            nb_examples=train_subtask_lang["size"],
+                                            demote_to_first=args.demote_to_first_deck)
+            else:
+                lt_scheduler = None
+
+            if args.setup_opt in ["cll-er_kd", "cll-equal-er_kd"]:
                 memory = train_subtask_lang["memory"]
             else:
                 memory = None
@@ -1223,11 +1660,11 @@ def run(results_dir, args, app_log):
                 model_dict = model.state_dict()
 
             if args.multi_head_in:
-                if args.emb_enc_subtask_spec == ["all"]:  # could either be lang or subtask specific
+                if args.emb_enc_subtask_spec.split("_") == ["all"]:  # could either be lang or subtask specific
                     trans_model_dict = {"trans_model."+k: v for k, v in original_mbert.named_parameters()}
                 else:
                     trans_model_dict = {"trans_model."+k: v for k, v in original_mbert.named_parameters()
-                                        if name_in_list(args.emb_enc_subtask_spec, k)}
+                                        if name_in_list(args.emb_enc_subtask_spec.split("_"), k)}
 
                 model_dict.update(trans_model_dict)
 
@@ -1250,6 +1687,7 @@ def run(results_dir, args, app_log):
                 model.load_state_dict(model_dict)
 
             params, saved_grads, best_model, optimizer, intent_embeddings = train_task_epochs(model,
+                                                                                              lt_scheduler,
                                                                                               intent_embeddings,
                                                                                               optimizer,
                                                                                               grad_dims,
@@ -1263,7 +1701,7 @@ def run(results_dir, args, app_log):
                                                                                               sample_sizes,
                                                                                               num_iter,
                                                                                               train_idx,
-                                                                                              train_lang, # training name of the task # TODO think about it
+                                                                                              train_lang, # training name of the task
                                                                                               num_steps,
                                                                                               writer,  # saving options
                                                                                               results_dir,
@@ -1285,23 +1723,31 @@ def run(results_dir, args, app_log):
             """ 2. Saving the trained weights of MBERT in each language to be used later on in testing stage"""
 
             if args.multi_head_in:
-                mbert_task = copy.deepcopy(model.trans_model)
+                mbert_task = copy.deepcopy(best_model.trans_model)
                 prior_mbert[train_idx] = {k: v for k, v in mbert_task.named_parameters()
-                                          if name_in_list(args.emb_enc_subtask_spec, k)}
+                                          if name_in_list(args.emb_enc_subtask_spec.split("_"), k)}
+
+                if train_idx == 0:
+                    mbert_task_test = copy.deepcopy(model.trans_model)
+                    mean_all, sum_all = compute_change(mbert_task_test, original_mbert,
+                                                       original_intent, original_intent,
+                                                       original_slot, original_slot)
+
+                    print("JUST DOUBLE CHECKING ON THE BUG OF MULTI-HEAD-IN mean_all comparing mbert with the original ", mean_all, sum_all)
 
             if args.multi_head_out:
                 # TODO DOUBLE CHECK model.intent_classifier[train_idx]
                 if "cil" in args.setup_opt:
-                    intents_task = copy.deepcopy(model.intent_classifier[train_idx])
+                    intents_task = copy.deepcopy(best_model.intent_classifier[train_idx])
                 else:
-                    intents_task = copy.deepcopy(model.intent_classifier)
+                    intents_task = copy.deepcopy(best_model.intent_classifier)
                 prior_intents[train_idx] = {k: v for k, v in intents_task.named_parameters()}
 
-                slots_task = copy.deepcopy(model.slot_classifier)
+                slots_task = copy.deepcopy(best_model.slot_classifier)
                 prior_slots[train_idx] = {k: v for k, v in slots_task.named_parameters()}
 
             if args.use_adapters:
-                adapter = copy.deepcopy(model.adapter)
+                adapter = copy.deepcopy(best_model.adapter)
                 prior_adapter[train_idx] = {k: v for k, v in adapter.named_parameters()}
 
             if args.save_change_params:
@@ -1341,7 +1787,7 @@ def run(results_dir, args, app_log):
                                  train_lang,
                                  num_steps,
                                  writer,
-                                 predictions_dir,
+                                 prediction_dir,
                                  metrics_dir,
                                  prior_mbert,
                                  prior_intents,
@@ -1351,14 +1797,18 @@ def run(results_dir, args, app_log):
         with open(os.path.join(metrics_dir, "mean_all_stream_mbert.pickle"), "wb") as output_file:
             pickle.dump(mean_all_stream, output_file)
 
-    elif args.setup_opt == "multi":
+    elif args.setup_opt in ["multi", "multi-equal"]:
         """
         Setup 5: Multi-task/Joint Learning: train on all languages and intent classes at the same time
         """
 
         # There is only one task here no subtasks
+        prior_mbert = [None, None, None, None, None, None]
+        prior_intents = [None, None, None, None, None, None]
+        prior_slots = [None, None, None, None, None, None]
+        prior_adapter = [None, None, None, None, None, None]
         train_examples = dataset.train_stream["examples"]
-        dev_stream = dataset.dev_stream
+        dev_stream = [dataset.dev_stream]
         test_stream = dataset.test_stream
         subtask_size = {0: dataset.train_stream["size"]}
         num_iter = dataset.train_stream["size"]//args.batch_size
@@ -1367,8 +1817,21 @@ def run(results_dir, args, app_log):
         train_lang = "-".join(args.languages)  # all languages
         num_steps = 0
 
+        if args.use_leitner_queue:
+            lt_scheduler = LeitnerQueue(num_decks=5,
+                                        dataset=dataset,
+                                        train_examples=train_examples,
+                                        nb_examples=dataset.train_stream["size"],
+                                        demote_to_first=args.demote_to_first_deck)
+        else:
+            lt_scheduler = None
+
+        intent_embeddings = {intent: [] for intent in range(len(INTENT_TYPES))}
         memory = None
+
         params, saved_grads, best_model, optimizer, intent_embeddings = train_task_epochs(model,
+                                                                                          lt_scheduler,
+                                                                                          intent_embeddings,
                                                                                           optimizer,
                                                                                           grad_dims,
                                                                                           cont_learn_alg,
@@ -1387,6 +1850,11 @@ def run(results_dir, args, app_log):
                                                                                           results_dir,
                                                                                           metrics_dir,
                                                                                           checkpoint_dir,
+                                                                                          model_trans,
+                                                                                          num_tasks,
+                                                                                          num_intents,
+                                                                                          eff_num_intents_task,
+                                                                                          eff_num_slot,
                                                                                           args_save_file,
                                                                                           model_save_file,
                                                                                           optim_save_file,
@@ -1404,7 +1872,7 @@ def run(results_dir, args, app_log):
                              train_lang,
                              num_steps,
                              writer,
-                             results_dir,
+                             prediction_dir,
                              metrics_dir,
                              prior_mbert,
                              prior_intents,
@@ -1424,9 +1892,12 @@ if __name__ == "__main__":
     add_model_expansion_arguments(parser)
     cont_learn_arguments(parser)
     add_meta_learning_setup(parser)
+    add_spaced_repetition_setup(parser)
     args = parser.parse_args()
 
     args = get_config_params(args)
+
+    conversion_lang = {order_lang: orderlang_id for orderlang_id, order_lang in enumerate(args.order_lst.split("_"))}
 
     set_seed(args.seed)
     results_dir = set_out_dir()
@@ -1441,6 +1912,12 @@ if __name__ == "__main__":
         config_path = os.path.join(results_dir, 'config.json')
         logstats.add_args('config', args)
         logstats.write_json(vars(args), config_path)
+
+    print("args.use_processor_sharing:", args.use_processor_sharing)
+    print("args.evaluate_one_batch:", args.evaluate_one_batch)
+    print("args.eval_sched_freq:", args.eval_sched_freq)
+    print("args.warm_start_epochs:", args.warm_start_epochs)
+    print("args.use_leitner_queue:", args.use_leitner_queue)
 
     run(results_dir, args, app_log)
 
