@@ -36,7 +36,10 @@ def read_saved_pickle(checkpoint_dir,
 
 
 def name_in_list(list, name):
+    # print("list:", list)
+    # print("name:", name)
     for el in list:
+        # print("el:", el)
         if el in name:
             return True
     return False
@@ -191,6 +194,8 @@ def nlu_evaluation(dataset,
 
         input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, _ = batch_one
 
+        # print("")
+
         if device != torch.device("cpu"):
             input_ids = input_ids.cuda()
             lengths = lengths.cuda()
@@ -235,7 +240,7 @@ def nlu_evaluation(dataset,
                 intent_logits, slot_logits, _, intent_loss, slot_loss, loss, pooled_output \
                     = eval_model(input_ids=input_ids,
                                  input_masks=input_masks,
-                                 train_idx=test_idx,
+                                 train_idx=test_idx,  # NOT USED ANYWAYS
                                  lengths=lengths,
                                  intent_labels=intent_labels,
                                  slot_labels=slot_labels)
@@ -267,7 +272,7 @@ def nlu_evaluation(dataset,
             with torch.no_grad():
                 intent_logits, intent_loss, loss, pooled_output = eval_model(input_ids=input_ids,
                                                                              input_masks=input_masks,
-                                                                             train_idx=test_idx,
+                                                                             train_idx=test_idx, # NOT USED ANYWAYS
                                                                              lengths=lengths,
                                                                              intent_labels=intent_labels)
 
@@ -418,16 +423,16 @@ def get_config_params(args):
     paths = configparser.ConfigParser()
     paths.read('scripts/paths.ini')
 
-    # location = "ENDEAVOUR"
-    location = "LOCAL"
+    location = "CLUSTER"
+    # location = "LOCAL"
 
     args.data_root = str(paths.get(location, "DATA_ROOT"))
     args.trans_model = str(paths.get(location, "TRANS_MODEL"))
     args.out_dir = str(paths.get(location, "OUT_DIR"))
 
     params = configparser.ConfigParser()
-    print('scripts/hyperparam'+args.param_tune_idx+'.ini')
-    params.read('scripts/hyperparam'+args.param_tune_idx+'.ini')
+    print('scripts/hyperparams/'+args.param_tune_idx+'.ini')
+    params.read('scripts/hyperparams/'+args.param_tune_idx+'.ini')
 
     args.batch_size = int(params.get("HYPER", "BATCH_SIZE"))
     args.epochs = int(params.get("HYPER", "EPOCHS"))
