@@ -20,7 +20,7 @@ In this paper, we present the cross-lingual continuous learning challenge, where
 
 Our experimental analysis shows that continual learning algorithms, namely model expansion approaches, improve over naive fine-tuning and regularization-based approaches narrowing the gap with joint learning baselines. We perform extensive ablation studies to shed the light on which components are responsible for catastrophic forgetting and need further attention when it comes to continual learning. Based on that, we show that the encoder module is the culprit of catastrophic forgetting and dig deeper to check which algorithm help with with addressing that. We believe our problem setup, evaluation protocols, and analysis can inspire future studies towards continual learning for more or across downstream tasks covering different languages.
 
-![image](cillia.png)
+![image](xcontlearndiagram.pdf)
 
 ## 2. Requirements <a name="requirements"></a>:
 * Python 3.6 or higher.
@@ -49,7 +49,23 @@ COMING SOON
 
 ## 6. Citation <a name="citation"></a>:
 
-COMING SOON
+If you find our work or code useful, please cite our paper:
+
+<pre>
+@misc{https://doi.org/10.48550/arxiv.2205.11152,
+      doi = {10.48550/ARXIV.2205.11152},
+      url = {https://arxiv.org/abs/2205.11152},
+      author = {M'hamdi, Meryem and Ren, Xiang and May, Jonathan},
+      keywords = {Computation and Language (cs.CL), FOS: Computer and information sciences, FOS: Computer and information sciences},
+      title = {Cross-lingual Lifelong Learning},
+      publisher = {arXiv},
+      year = {2022},
+      abstract="The longstanding goal of multi-lingual learning has been to develop a universal cross-lingual model that can withstand the changes in multi-lingual data distributions. However, most existing models assume full access to the target languages in advance, whereas in realistic scenarios this is not often the case, as new languages can be incorporated later on. In this paper, we present the Cross-lingual Lifelong Learning (CLL) challenge, where a model is continually fine-tuned to adapt to emerging data from different languages. We provide insights into what makes multilingual sequential learning particularly challenging. To surmount such challenges, we benchmark a representative set of cross-lingual continual learning algorithms and analyze their knowledge preservation, accumulation, and generalization capabilities compared to baselines on carefully curated datastreams. The implications of this analysis include a recipe for how to measure and balance between different cross-lingual continual learning desiderata, which goes beyond conventional transfer learning."
+      copyright = {Creative Commons Attribution 4.0 International},
+     }
+</pre>
+
+
 
 ## 7. Credits <a name="credits"></a>:
 
