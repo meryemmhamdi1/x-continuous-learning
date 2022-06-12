@@ -3,7 +3,6 @@ import torch
 from basemodels.transNLU import TransNLU
 from basemodels.crf import CRFLayer
 from utils import import_from
-from consts import SLOT_PAD
 # from transformers import AdapterConfig
 
 
@@ -98,7 +97,7 @@ class TransNLUCRF(TransNLU):
             hidden_outputs.append(embeddings)
             for i in range(1, self.trans_model.config.num_hidden_layers+1):
                 output_hidden = lm_output[2][i]
-                if str(i) in self.adapter_layers:
+                if str(i) in self.adapter_layers.split("_"):
                     output_hidden = self.adapter(output_hidden)[0]
 
                 hidden_outputs.append(output_hidden)

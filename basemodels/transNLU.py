@@ -1,6 +1,5 @@
 import torch.nn as nn
 import torch
-from consts import SLOT_PAD
 
 
 class TransNLU(nn.Module):
