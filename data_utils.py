@@ -42,11 +42,13 @@ class AugmentedList:
         self.cur_idx = 0
         self.shuffle_between_epoch = shuffle_between_epoch
         if shuffle_between_epoch:
+            print("SHUFFLING DONE HERE")
             random.shuffle(self.items)
 
     def next_items(self, batch_size):
         if self.cur_idx == 0 and self.shuffle_between_epoch:
             random.shuffle(self.items)
+            print("SHUFFLING DONE HERE")
         items = self.items
         start_idx = self.cur_idx
         end_idx = start_idx + batch_size
@@ -135,7 +137,7 @@ def clean_text(token_list, lang):
     return token_list_clean
 
 
-def _parse_tsv(data_path, tokenizer, lang, intent_set=[], slot_set=["O", "X"], seen_examples=[]):
+def _parse_tsv(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O", "X"], seen_examples=[]):
     """
     Taken from https://github.com/zliucr/mixed-language-training
     Input:
@@ -150,6 +152,7 @@ def _parse_tsv(data_path, tokenizer, lang, intent_set=[], slot_set=["O", "X"], s
     """
     slot_type_list = ["alarm", "datetime", "location", "reminder", "weather"]
     process_egs = []
+    process_egs_dict = {}
     with open(data_path) as tsv_file:
         reader = csv.reader(tsv_file, delimiter="\t")
         for i, line in enumerate(reader):
@@ -220,21 +223,26 @@ def _parse_tsv(data_path, tokenizer, lang, intent_set=[], slot_set=["O", "X"], s
                     else:
                         sub_slots.append('X')
 
-            sub_tokens += ['[SEP']
+            sub_tokens += ['[SEP]']
             sub_slots.append('X')
             assert len(sub_slots) == len(sub_tokens)
 
-            process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots, i))
+            id_ = split + "_" + lang + "_" + str(i)
 
-    return process_egs, intent_set, slot_set
+            process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots, id_))
+            process_egs_dict.update({id_: (' '.join(tokens), sub_tokens, intent, sub_slots, id_)})
+
+    return process_egs, intent_set, slot_set, process_egs_dict
 
 
-def _parse_json(data_path, tokenizer, intent_set=[]):
+def _parse_json(data_path, tokenizer,  split, lang, intent_set=[]):
     """
     Processes json formatted text (was used for in-house Adobe data)
     """
     process_egs = []
+    process_egs_dict = {}
     with open(data_path) as fp:
+        i = 0
         for entry in json.load(fp):
             intent = entry['intent']
             if intent not in intent_set:
@@ -243,8 +251,11 @@ def _parse_json(data_path, tokenizer, intent_set=[]):
             if len(words) >= 3 and words[-2].endswith('?'):
                 words[-2] = words[-2][:-1]
             tokenized_words = ['[CLS]'] + tokenizer.tokenize(' '.join(words)) + ['[SEP]']
-            process_egs.append((''.join(words), list(tokenized_words),  intent))
-    return process_egs, intent_set
+            process_egs.append((''.join(words), list(tokenized_words),  intent, id_))
+            id_ = split + "_" + lang + "_" + str(i)
+            process_egs_dict.update({id_: (''.join(words), list(tokenized_words),  intent, id_)})
+            i += 1
+    return process_egs, intent_set, process_egs_dict
 
 
 def _parse_mtop_simplified(data_path, intent_set=[], slot_set=["O", "X"]):
@@ -315,18 +326,19 @@ def _parse_mtop_simplified(data_path, intent_set=[], slot_set=["O", "X"]):
     return process_egs, intent_set, slot_set_unique
 
 
-def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
+def _parse_mtop(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O", "X"]):
     """
     To process the flat representation of MTOP by taking the top level in the hierarchical representation
     """
     process_egs = []
+    process_egs_dict = {}
     distinct_domains = []
     distinct_slots = []
     domain_intent_slot_dict = {}
     with open(data_path) as tsv_file:
         reader = csv.reader(tsv_file, delimiter="\t")
         for i, line in enumerate(reader):
-            # if i == 200:
+            # if i == 16:
             #     break
             domain = line[3]
             if domain not in domain_intent_slot_dict:
@@ -405,13 +417,15 @@ def _parse_mtop(data_path, tokenizer, intent_set=[], slot_set=["O", "X"]):
                     else:
                         sub_slots.append('X')
 
-            sub_tokens += ['[SEP']
+            sub_tokens += ['[SEP]']
             sub_slots.append('X')
             assert len(sub_slots) == len(sub_tokens)
 
-            process_egs.append([' '.join(tokens), sub_tokens, intent, sub_slots, i])
+            id_ = split+"_"+lang+"_"+str(i)
+            process_egs.append([' '.join(tokens), sub_tokens, intent, sub_slots, id_])
+            process_egs_dict.update({id_: (' '.join(tokens), sub_tokens, intent, sub_slots, id_)})
 
-    return process_egs
+    return process_egs, process_egs_dict
 
 
 class NLUDataset(Dataset):
@@ -464,6 +478,8 @@ class NLUDataset(Dataset):
         self.train_set = {lang: [] for lang in languages}
         self.dev_set = {lang: [] for lang in languages}
         self.test_set = {lang: [] for lang in languages}
+
+        self.process_egs_dict_global = {}
 
         for lang in self.languages:
             print("----------lang:", lang)
@@ -851,11 +867,18 @@ class NLUDataset(Dataset):
             inc_langs_set = []
             for i, lang in enumerate(ordered_langs):
                 inc_langs_set.append(ordered_langs[0:i+1])
-            #
+
             inc_train_set = {"-".join(lang_l): [] for lang_l in inc_langs_set}
             for lang_l in inc_train_set.keys():
                 for lang in lang_l.split("-"):
                     inc_train_set[lang_l].extend(self.train_set[lang])
+
+            # print("inc_train_set.keys():", inc_train_set.keys())
+            #
+            # print("inc_train_set[lang_l]:", inc_train_set["en"])
+
+            # for lang_l in inc_train_set:
+            #     print("lang_l:", lang_l)
 
             self.train_stream = [{"lang": lang_l,
                                   "examples": AugmentedList(inc_train_set[lang_l],
@@ -863,14 +886,27 @@ class NLUDataset(Dataset):
                                   "size": len(inc_train_set[lang_l])}
                                  for lang_l in inc_train_set]
 
+            # debug_stuffy = AugmentedList(inc_train_set["en"],
+            #                              shuffle_between_epoch=True)
+            #
+            # batch, _ = self.next_batch(16, debug_stuffy)
+            # input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, input_identifiers = batch
+            # print("input_identifiers:", input_identifiers)
+            # exit(0)
+
             ## Dev
             inc_dev_set = {"-".join(lang_l): [] for lang_l in inc_langs_set}
             for lang_l in inc_dev_set.keys():
                 for lang in lang_l.split("-"):
                     inc_dev_set[lang_l].extend(self.dev_set[lang])
 
+            # print("inc_dev_set.keys():", inc_dev_set.keys())
+            #
+            # print("inc_dev_set[lang_l]:", inc_dev_set["en"][:10])
+
             self.dev_stream = [{"lang": lang_l,
-                                "examples": AugmentedList(inc_dev_set[lang_l]),
+                                "examples": AugmentedList(inc_dev_set[lang_l],
+                                                          shuffle_between_epoch=True),
                                 "size": len(inc_dev_set[lang_l])}
                                for lang_l in inc_dev_set]
 
@@ -897,6 +933,8 @@ class NLUDataset(Dataset):
                 for lang in mem_langs:
                     mem_train_set[lang_l].append(self.train_set[lang][:self.memory_size//len(self.languages)])  # TODO Add portion of memory here => added each task alone
 
+            # print("self.train_set[en]:", self.train_set["en"])
+
             self.train_stream = [{"lang": lang_l[i],
                                   "examples": AugmentedList(self.train_set[lang_l[i]],
                                                             shuffle_between_epoch=True),
@@ -905,6 +943,18 @@ class NLUDataset(Dataset):
                                   "size_memory": [len(mem) for mem in mem_train_set["-".join(lang_l)]]# each task with its memory size but you don't need that anyways
                                   }
                                  for i, lang_l in enumerate(mem_langs_set)]
+
+            # print("self.dev_set[en]:", self.dev_set["en"][:10])
+
+            # debug_stuffy = AugmentedList(self.train_set["en"],
+            #                              shuffle_between_epoch=True)
+
+            # print("AFTER SHUFFLING self.train_set[en]:", self.train_set["en"][:10])
+
+            # batch, _ = self.next_batch(16, debug_stuffy)
+            # input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, input_identifiers = batch
+            # print("input_identifiers:", input_identifiers)
+            # exit(0)
 
             ## Dev
             self.dev_stream = [{"lang": lang,
@@ -926,11 +976,16 @@ class NLUDataset(Dataset):
             train_set_all = []
             for lang in self.train_set:
                 train_set_all += self.train_set[lang]
+
             self.train_stream = {"examples": AugmentedList(train_set_all,
                                                            shuffle_between_epoch=True),
                                  "size": len(train_set_all)}
 
-            dev_set_all = [self.dev_set[lang] for lang in self.languages]
+            dev_set_all = []
+            for lang in self.languages:
+                dev_set_all += self.dev_set[lang]
+
+            # dev_set_all = [self.dev_set[lang] for lang in self.languages]
             self.dev_stream = {"examples": AugmentedList(dev_set_all,
                                                          shuffle_between_epoch=True),
                                "size": len(dev_set_all)}
@@ -939,6 +994,12 @@ class NLUDataset(Dataset):
             for lang in self.languages:
                 self.test_stream.update({lang: {"examples": AugmentedList(self.test_set[lang]),
                                                 "size": len(self.test_set[lang])}})
+
+    def get_item_by_id(self, id_):
+        return self.process_egs_dict_global[id_]
+
+    def save_global_process_egs_dict(self, process_egs_dict):
+        self.process_egs_dict_global.update(process_egs_dict)
 
     def read_split(self, lang, split):
         """
@@ -953,24 +1014,31 @@ class NLUDataset(Dataset):
                                  split)
 
         if self.data_format == "tsv":
-            process_egs = _parse_tsv(file_path + "-" + lang + ".tsv",
-                                     self.tokenizer,
-                                     lang,
-                                     intent_set,
-                                     slot_set)
+            process_egs, intent_set, slot_set, process_egs_dict = _parse_tsv(file_path + "-" + lang + ".tsv",
+                                                                             self.tokenizer,
+                                                                             split,
+                                                                             lang,
+                                                                             intent_set,
+                                                                             slot_set)
 
         elif self.data_format == "json":
-            process_egs = _parse_json(file_path + ".json",
-                                      self.tokenizer,
-                                      intent_set)
+            process_egs, intent_set, process_egs_dict = _parse_json(file_path + ".json",
+                                                                    self.tokenizer,
+                                                                    split,
+                                                                    lang,
+                                                                    intent_set)
         else:
-            process_egs = _parse_mtop(file_path + ".txt",
-                                      self.tokenizer,
-                                      intent_set,
-                                      slot_set)
+            process_egs, process_egs_dict = _parse_mtop(file_path + ".txt",
+                                                        self.tokenizer,
+                                                        split,
+                                                        lang,
+                                                        intent_set,
+                                                        slot_set)
 
         process_egs_shuffled = random.sample(process_egs,
                                              k=len(process_egs))
+
+        self.save_global_process_egs_dict(process_egs_dict)
 
         return process_egs_shuffled
 
@@ -1025,6 +1093,55 @@ class NLUDataset(Dataset):
 
             print("ordered_langs:", ordered_langs)
         return ordered_langs
+
+    def get_batch_one(self, identifier):
+        example = self.get_item_by_id(identifier)
+        max_sent_len = 0
+        input_ids, lengths, intent_labels, slot_labels, token_type_ids, input_masks, \
+        input_texts, input_identifiers = [], [], [], [], [], [], [], []
+
+        input_texts.append(example[0])
+
+        cur_input_ids = self.tokenizer.convert_tokens_to_ids(example[1])
+        assert len(cur_input_ids) == len(example[1])
+        input_ids.append(cur_input_ids)
+
+        max_sent_len = max(max_sent_len, len(example[1]))
+
+        lengths.append(len(cur_input_ids))
+
+        intent_labels.append(example[2])
+
+        if self.use_slots:
+            assert len(cur_input_ids) == len(example[3])
+            slot_labels_sub = []
+            for slot in example[3]:
+                slot_labels_sub.append(self.slot_types.index(slot))
+            slot_labels.append(slot_labels_sub)
+
+        input_identifiers.append(example[4])
+
+        # Padding
+        for i in range(1):
+            input_masks.append([1] * len(input_ids[i]) + [0] * (max_sent_len - len(input_ids[i])))
+            input_ids[i] += [0] * (max_sent_len - len(input_ids[i]))
+
+            token_type_ids.append([1 for _ in input_ids[i]])
+            # attention_mask.append([int(x > 0) for x in input_ids[i]])
+            if self.use_slots:
+                slot_labels[i] += [0] * (max_sent_len - len(slot_labels[i]))
+
+        # Convert to LongTensors
+        slot_labels = LongTensor(slot_labels)
+        input_ids = LongTensor(input_ids)
+        lengths = LongTensor(lengths)
+        intent_labels = LongTensor(intent_labels)
+        token_type_ids = LongTensor(token_type_ids)
+        input_masks = LongTensor(input_masks)
+        # attention_mask = LongTensor(attention_mask)
+
+        return (input_ids, lengths, token_type_ids, input_masks, intent_labels,
+                slot_labels, input_texts, input_identifiers), example
 
     def next_batch(self, batch_size, data_split):
         """
