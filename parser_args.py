@@ -38,9 +38,8 @@ def add_setup_arguments(parser):
                                                   "* multi:      Multi-tasking one model on all tasks and languages.",
 
                               choices=["cil", "cil-other", "multi-incr-cil",
-                                       "cll", "multi-incr-cll",
-                                       "cil-ll", "multi",
-                                       "cll-er_kd"],
+                                       "cll", "multi-incr-cll", "cil-ll", "multi", "multi-equal",
+                                       "cll-er_kd", "cll-equal", "cll-equal-er_kd", "cll-n-ways", "cll-k-shots"],
                               type=str, default="cll")
 
     setup_params.add_argument("--cil_stream_lang", help="Which lang to work on for the CIL setup if it is picked.",
@@ -151,22 +150,22 @@ def add_model_expansion_arguments(parser):
     model_expansion_params.add_argument("--emb_enc_subtask_spec", help="Which layer in the embeddings or the encoder "
                                                                        "to tune for each subtask/language"
                                                                        " independently.",
-                                        choices=["embeddings",
-                                                 "encoder.layer.0.",
-                                                 "encoder.layer.1.",
-                                                 "encoder.layer.2.",
-                                                 "encoder.layer.3.",
-                                                 "encoder.layer.4.",
-                                                 "encoder.layer.5.",
-                                                 "encoder.layer.6.",
-                                                 "encoder.layer.7.",
-                                                 "encoder.layer.8.",
-                                                 "encoder.layer.9.",
-                                                 "encoder.layer.10.",
-                                                 "encoder.layer.11.",
-                                                 "pooler",
-                                                 "all"],
-                                        nargs="+", default=["embeddings"])
+                                        # choices=["embeddings",
+                                        #          "encoder.layer.0.",
+                                        #          "encoder.layer.1.",
+                                        #          "encoder.layer.2.",
+                                        #          "encoder.layer.3.",
+                                        #          "encoder.layer.4.",
+                                        #          "encoder.layer.5.",
+                                        #          "encoder.layer.6.",
+                                        #          "encoder.layer.7.",
+                                        #          "encoder.layer.8.",
+                                        #          "encoder.layer.9.",
+                                        #          "encoder.layer.10.",
+                                        #          "encoder.layer.11.",
+                                        #          "pooler",
+                                        #          "all"],
+                                        type=str, default="all")
 
     model_expansion_params.add_argument("--multi_head_out", help="Whether to use multiple heads in the outputs that "
                                                                  "would imply the use of different task-specific "
@@ -293,10 +292,35 @@ def add_meta_learning_setup(parser):
                                        type=float, default=0.01)
 
     meta_learning_params.add_argument("--num_batches_reptile", help="Number of batches per task",
-                                   type=int, default=10)
+                                      type=int, default=10)
 
     meta_learning_params.add_argument("--use_reptile", help="Whether to use reptile or not",
-                                   action="store_true")
+                                      action="store_true")
 
     meta_learning_params.add_argument("--use_batches_reptile", help="Whether to use many batches per task or not",
-                                   action="store_true")
+                                      action="store_true")
+
+def add_spaced_repetition_setup(parser):
+    spaced_repetition_params = parser.add_argument_group("Spaced Repetition Parameters")
+    spaced_repetition_params.add_argument("--use_processor_sharing", help="Whether to use the processor sharing service "
+                                                                      "discipline or first-in-first-out",
+                                          action="store_true")
+
+    spaced_repetition_params.add_argument("--evaluate_one_batch", help="Whether to use one batch to update the leitner queues",
+                                          action="store_true")
+
+    spaced_repetition_params.add_argument("--eval_sched_freq",
+                                          help="How frequently should we evaluate and update the Leitner Scheduler",
+                                          type=int, default=10)
+
+    spaced_repetition_params.add_argument("--warm_start_epochs",
+                                          help="How many epochs should the rote training be",
+                                          type=int, default=2)
+
+    spaced_repetition_params.add_argument("--use_leitner_queue",
+                                          help="Whether to just use Leitner queues or just a random baseline",
+                                          action="store_true")
+
+    spaced_repetition_params.add_argument("--demote_to_first_deck",
+                                          help="Whether to demote all the way to the first deck or just to the previous one ",
+                                          action="store_true")
