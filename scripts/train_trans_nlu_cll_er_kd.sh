@@ -39,7 +39,7 @@ helpFunction()
                     * ewc \
                     * gem \
                     * mbpa \
-                    * metambpa" # TODO more customization and flexibility in choosing the  hyperparameters for different models
+                    * metambpa"
    echo -e "\t-i MODEL_EXPANSION_OPT: \
                     * adapters: use adapters\
                     * multi_head_in: use multiple heads that would imply multiple subtask/language-specific heads \
@@ -107,7 +107,7 @@ do
       k ) ADAPTER_LAYERS="$OPTARG" ;;
       l ) FREEZE_TYPE="$OPTARG" ;;
       m ) FREEZE_FIRST="$OPTARG" ;;
-      n ) SEED="$OPTARG" ;;
+      n ) SEED="$OP TARG" ;;
       ? ) helpFunction ;; # Print helpFunction in case parameter is non-existent
    esac
 done
@@ -131,7 +131,19 @@ ADAPTER_TYPE=${16:-"MADX"}
 STORING_TYPE=${17:-"ring"}
 SAMPLING_TYPE=${18:-"random"}
 MAX_MEM_SZ=${19:-6000}
-SAMPLING_K=${20:-10}
+SAMPLING_K=${20:-16}
+USE_REPTILE=${21:-"no"}
+USE_BATCHES_REPTILE=${22:-"no"}
+HYPER_TUNE_IDX=${23:-"0"}
+USE_MONO=${24:-"no"}
+MONO_LANG=${25:-"en"}
+LANGUAGES=${26:-"de en es fr hi th"}
+USE_PROCESSOR_SHARING=${27:-"yes"}
+EVALUATE_ONE_BATCH=${28:-"yes"}
+EVAL_SCHED_FREQ=${29:-10}
+WARM_START_EPOCHS=${30:-2}
+USE_LEITNER_QUEUE=${31:-"yes"}
+DEMOTE_TO_FIRST_DECK=${32:-"no"}
 
 ## Base Model Options
 BASE_MODEL_OPTIONS=""
@@ -142,11 +154,11 @@ fi
 ## Data Stream Setups Options
 DATA_OPTIONS=""
 
-if [ $STREAM_SETUP == "cil" ] || [ $STREAM_SETUP == "multi-incr-cil" ] || [ $STREAM_SETUP == "cil-other" ]; then
+if [ $STREAM_SETUP == "cil" ] || [ $STREAM_SETUP == "multi-incr-cil" ] || [ $STREAM_SETUP == "cil-other" ] || [ $STREAM_SETUP == "cll-k-shots" ] ||  [ $STREAM_SETUP == "cll-n-ways" ]; then
     DATA_OPTIONS=" --order_class "$ORDER_CLASS" --order_lst "$ORDER_STR
-elif [ $STREAM_SETUP == "cll" ] || [ $STREAM_SETUP == "multi-incr-cll" ]; then
+elif [ $STREAM_SETUP == "cll" ] || [ $STREAM_SETUP == "multi-incr-cll" ] ||  [ $STREAM_SETUP == "cll-er_kd" ] ||  [ $STREAM_SETUP == "cll-equal" ]  ||  [ $STREAM_SETUP == "cll-equal-er_kd" ]; then
     DATA_OPTIONS=" --order_lang "$ORDER_LANG" --order_lst "$ORDER_STR
-elif [ $STREAM_SETUP == "cil-ll" ]; then
+elif [ $STREAM_SETUP == "cil-ll" ] || [ $STREAM_SETUP == "multi" ]; then
     DATA_OPTIONS="--order_class "$ORDER_CLASS" --order_lang "$ORDER_LANG" --order_lst "$ORDER_STR
 fi
 
@@ -187,17 +199,55 @@ elif [ $exp_type == "freeze_trans_linear" ]; then
 
 fi
 
+META_LEARNING_PARAMS=""
+if [ $USE_REPTILE == "yes" ]; then
+   META_LEARNING_PARAMS+=" --use_reptile"
+fi
+if [ $USE_BATCHES_REPTILE == "yes" ]; then
+    echo "USE MANY BATCHES REPTILE"
+    META_LEARNING_PARAMS+=" --use_batches_reptile"
+fi
+
+## MONO Option
+USE_MONO_PARAMS=""
+if [ $USE_MONO == "yes" ]; then
+   USE_MONO_PARAMS+="--use_mono --languages "$MONO_LANG
+fi
+
+## LEITNER QUEUES Options
+LEITNER_QUEUES_PARAMS=""
+if [ $USE_PROCESSOR_SHARING == "yes" ]; then
+   LEITNER_QUEUES_PARAMS+="--use_processor_sharing "
+fi
+if [ $EVALUATE_ONE_BATCH == "yes" ]; then
+   LEITNER_QUEUES_PARAMS+="--evaluate_one_batch "
+fi
+if [ $USE_LEITNER_QUEUE == "yes" ]; then
+   LEITNER_QUEUES_PARAMS+="--use_leitner_queue "
+fi
+if [ $DEMOTE_TO_FIRST_DECK == "yes" ]; then
+   LEITNER_QUEUES_PARAMS+="--demote_to_first_deck "
+fi
+
+LEITNER_QUEUES_PARAMS+="--eval_sched_freq "$EVAL_SCHED_FREQ" --warm_start_epochs "$WARM_START_EPOCHS
+
 echo "Training " $TRANS_MODEL $STREAM_SETUP
 
 echo "    Data Options " $DATA_OPTIONS
 echo "    Base Model Options " $BASE_MODEL_OPTIONS
 echo "    Continuous Learn Options " $CONT_LEARN_ALG $CONT_LEARN_OPTIONS
-echo " MODEL_EXPANSION_OPT:" $MODEL_EXPANSION_OPT
+echo "    Model Expansion Options:" $MODEL_EXPANSION_OPT
+echo "    Leitner Queues Options:" $LEITNER_QUEUES_PARAMS
 
-python -W ignore main.py --trans_model $TRANS_MODEL \
-                         --setup_opt $STREAM_SETUP \
-                         --seed $SEED \
-                         --cont_comp $CONT_COMP \
-                         --adapter_type $ADAPTER_TYPE \
-                         --cil_stream_lang $CIL_STREAM_LANG \
-                         $DATA_OPTIONS $BASE_MODEL_OPTIONS $CONT_LEARN_OPTIONS
+python3.6 -W ignore main_sanity_check_er_kd.py --trans_model $TRANS_MODEL \
+                                               --setup_opt $STREAM_SETUP \
+                                               --seed $SEED \
+                                               --cont_comp $CONT_COMP \
+                                               --adapter_type $ADAPTER_TYPE \
+                                               --cil_stream_lang $CIL_STREAM_LANG \
+                                               --param_tune_idx $HYPER_TUNE_IDX \
+                                               --save_model \
+                                               --save_dev_pred \
+                                               --languages $LANGUAGES \
+                                               $DATA_OPTIONS $BASE_MODEL_OPTIONS $CONT_LEARN_OPTIONS $META_LEARNING_PARAMS \
+                                               $USE_MONO_PARAMS $LEITNER_QUEUES_PARAMS
