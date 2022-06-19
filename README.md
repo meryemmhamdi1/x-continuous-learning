@@ -30,10 +30,11 @@ Our experimental analysis shows that continual learning algorithms, namely model
 * The original MTOP dataset can be directly downloaded from https://fb.me/mtop_dataset. For more details regarding the processing of the dataset, refer to functions in data_utils.py.
 * For the high-level analysis, we use the dataset splits as is. This is referred to as CLL with fixed label set where the stream consists of data from different languages preserving the original MTOP label space distribution following a specific permutation of languages.
 * For further analysis, we provide the data streams used for approximating the impact of resourcefulness and language similarity as follows:
-  - The impact of resourcefulness: For this purpose, we design different N-way and K-Shot data stream splits:
-      - N-Way Analysis: We gradually increase or decrease the coverage of classes (with the same number of shots per class) across one single language. [LINK HERE either gdrive or within repo]
-      - K-Shot Analysis: We gradually increase or decrease the number of shots per class where the classes are fixed.
-  - The impact of resourcefulness: We come up with a datastream with an equal coverage over the different classes per language. [LINK HERE either gdrive or within repo]
+  - The impact of equal distribution : We come up with a datastream with an equal coverage over the different classes per language. [analysis_data/cll-equals]
+  - The impact of resourcefulness: For this purpose, we design different N-way and K-Shot data stream splits: 
+      - N-Way Analysis: We gradually increase or decrease the coverage of classes (with the same number of shots per class) across one single language. 
+      - K-Shot Analysis: We gradually increase or decrease the number of shots per class where the classes are fixed. [analysis_data/cll-k-shots]
+Although we provide only an analysis for equal distribution in our paper, we believe an analysis of the impact of resourcefulness could also be explored in future work. 
 
 ## 4. Running Scripts <a name="scripts"></a>:
 
@@ -43,6 +44,7 @@ After providing paths.ini where you include DATA_ROOT and TRANS_MODEL and OUT_DI
 
 [TODO] add some examples of scripts
 
+The predictions for key experiments are provided in predictions folder. Due to size limitations in Github and for an exhaustive list of predictions, please refer to this [link](https://drive.google.com/drive/folders/11adeU6AMg6QfNcoKTzqAP5eLnf5dFsYS?usp=sharing).
 ## 5. Results Visualization <a name="results"></a>:
 
 COMING SOON
