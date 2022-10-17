@@ -80,10 +80,16 @@ def compute_bootstrap(root_dir, model_dir, n, n_iters, t):
 
 
 if __name__ == "__main__":
-    root_dir = ""
+    root_dir = "new_predictions"
     model_dir = ""
     n = 600
     n_iters = 600
     t = 1.9639 # 95%
+
+    print("rand_perf:", rand_perf, " rand_conf:", rand_conf,
+          " average intent accuracy:", round(np.mean([rand_perf[lang][0] for lang in languages]), 2),
+          " conf intent accuracy:", round(np.mean([rand_conf[lang][0] for lang in languages]), 2),
+          " average f1 slot:", round(np.mean([rand_perf[lang][1] for lang in languages]), 2),
+          " conf f1 slot:", round(np.mean([rand_conf[lang][1] for lang in languages]), 2))
 
     compute_bootstrap(root_dir, model_dir, n, n_iters, t)
