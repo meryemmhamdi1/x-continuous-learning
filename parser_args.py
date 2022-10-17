@@ -77,6 +77,9 @@ def add_dataset_arguments(parser):
     dataset_params = parser.add_argument_group("Dataset Options")
     dataset_params.add_argument("--data_format", help="Whether it is tsv (MTOD), json, or txt (MTOP).",
                                 type=str, default="txt")
+    
+    dataset_params.add_argument("--data_name", help="Whether it is mtop or atis.",
+                                type=str, default="mtop", choices=["atis", "mtop"])
 
     dataset_params.add_argument("--languages", help="Train languages list.",
                                 nargs="+", default=["de", "en", "es", "fr", "hi", "th"])
