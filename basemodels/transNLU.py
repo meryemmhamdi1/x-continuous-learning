@@ -3,7 +3,12 @@ import torch
 
 
 class TransNLU(nn.Module):
-    def __init__(self, trans_model, num_intents, use_slots=False, num_slots=0):
+    def __init__(self, 
+                 trans_model, 
+                 num_intents, 
+                 use_slots=False, 
+                 num_slots=0):
+                 
         super(TransNLU, self).__init__()
         self.num_intents = num_intents
         self.config = trans_model.config
