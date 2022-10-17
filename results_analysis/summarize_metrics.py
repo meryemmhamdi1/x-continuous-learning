@@ -85,8 +85,11 @@ def compute_max_forget(diff_list):
 
 def forget_avg(metrics, order, eff_order):
     back_order = eff_order[1:]
-    avg_intent_acc_el = {el: 0.0 for el in order}
-    avg_slot_f1_el = {el: 0.0 for el in order}
+    avg_intent_acc_train = {lang: 0.0 for lang in order}
+    avg_slot_f1_train = {lang: 0.0 for lang in order}
+
+    avg_intent_acc_test = {lang: 0.0 for lang in order}
+    avg_slot_f1_test = {lang: 0.0 for lang in order}
 
     for i_train, el_train in enumerate(eff_order):
         if i_train == 0:
@@ -101,20 +104,28 @@ def forget_avg(metrics, order, eff_order):
             max_forget_slot \
                 = compute_max_forget([metrics[i_prev][i_test*2+1]-curr_slot_perf for i_prev in range(i_train)])
 
-            avg_intent_acc_el[el_train] += max_forget_intent
-            avg_slot_f1_el[el_train] += max_forget_slot
+            avg_intent_acc_test[lang_test] += max_forget_intent
+            avg_slot_f1_test[lang_test] += max_forget_slot
+
+            avg_intent_acc_train[el_train] += max_forget_intent
+            avg_slot_f1_train[el_train] += max_forget_slot
 
     j = 1
     for lang in back_order:
-        avg_intent_acc_el[lang] = avg_intent_acc_el[lang] / j
-        avg_slot_f1_el[lang] = avg_slot_f1_el[lang] / j
-
+        avg_intent_acc_train[lang] = avg_intent_acc_train[lang] / j
+        avg_slot_f1_train[lang] = avg_slot_f1_train[lang] / j
         j += 1
 
-    avg_intent_acc = np.mean([avg_intent_acc_el[lang] for lang in back_order])
-    avg_slot_f1 = np.mean([avg_slot_f1_el[lang] for lang in back_order])
+    j = len(order[:-1])
+    for lang in order[:-1]:
+        avg_intent_acc_test[lang] = avg_intent_acc_test[lang] / j
+        avg_slot_f1_test[lang] = avg_slot_f1_test[lang] / j
+        j -= 1
 
-    return avg_intent_acc_el, avg_slot_f1_el, avg_intent_acc, avg_slot_f1
+    avg_intent_acc = np.mean([avg_intent_acc_train[lang] for lang in back_order])
+    avg_slot_f1 = np.mean([avg_slot_f1_train[lang] for lang in back_order])
+
+    return avg_intent_acc_train, avg_slot_f1_train, avg_intent_acc_test, avg_slot_f1_test, avg_intent_acc, avg_slot_f1
 
 
 def fwt_avg(metrics,
@@ -144,6 +155,31 @@ def fwt_avg(metrics,
 
     return avg_intent_acc_el, avg_slot_f1_el, avg_intent_acc, avg_slot_f1
 
+
+def fwt_avg_k(metrics,
+              order,
+              random_perf,
+              k):
+    fwt_order = order[1:]  # we don't look at the forward transfer effect on the first element
+    avg_intent_acc_test = {lang: 0.0 for lang in fwt_order}
+    avg_slot_f1_test = {lang: 0.0 for lang in fwt_order}
+
+    sum_intent_acc = 0.0
+    sum_slot_f1 = 0.0
+
+    for i_train, lang_train in enumerate(order):  # same as eff_order (but need to keep the original order of indices to match with the metrics results matrix in random_perf)
+        if i_train + k >= len(order):
+            continue
+        lang_test = order[i_train+k]
+        sum_intent_acc += (metrics[i_train][(i_train+k)*2] - random_perf[lang_test][0])
+        sum_slot_f1 += (metrics[i_train][(i_train+k)*2+1] - random_perf[lang_test][1])
+        avg_intent_acc_test[lang_test] += (metrics[i_train][(i_train+k)*2] - random_perf[lang_test][0])
+        avg_slot_f1_test[lang_test] += (metrics[i_train][(i_train+k)*2+1] - random_perf[lang_test][1])
+
+    avg_intent_acc = sum_intent_acc / (len(order) - k)
+    avg_slot_f1 = sum_slot_f1 / (len(order) - k)
+
+    return avg_intent_acc_test, avg_slot_f1_test, avg_intent_acc, avg_slot_f1
 
 def fwt_avg_mono(metrics,
                  order,
