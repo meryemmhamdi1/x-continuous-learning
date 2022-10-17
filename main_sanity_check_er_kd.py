@@ -1408,8 +1408,8 @@ def run(results_dir, args, app_log):
                          args.num_intent_tasks,
                          args.num_lang_tasks,
                          args.max_mem_sz,
-                         intent_types=INTENT_TYPES,
-                         slot_types=SLOT_TYPES)
+                         intent_types=INTENT_TYPES[args.dataset_name],
+                         slot_types=SLOT_TYPES[args.dataset_name])
 
     eff_num_intent = len(dataset.intent_types)
     num_intents = len(dataset.intent_types)
