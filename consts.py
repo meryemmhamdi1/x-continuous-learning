@@ -15,7 +15,8 @@ DOMAIN_TYPES = ["Alarm",
                 "Weather"]
 
 # 117 intent types => actual only 114 intent types over each languages and each splits
-INTENT_TYPES = ["alarm:CREATE_ALARM",
+INTENT_TYPES = {"mtop":
+                ["alarm:CREATE_ALARM",
                 "alarm:DELETE_ALARM",
                 "alarm:GET_ALARM",
                 "alarm:SILENCE_ALARM",
@@ -128,10 +129,13 @@ INTENT_TYPES = ["alarm:CREATE_ALARM",
                 "weather:GET_AIRQUALITY",
                 "weather:GET_SUNRISE",
                 "weather:GET_SUNSET",
-                "weather:GET_WEATHER"]
+                "weather:GET_WEATHER"],
+                "atis":
+                []}
 
 # 78 slot types
-SLOT_TYPES = ["O",
+SLOT_TYPES = {"mtop":
+              ["O",
               "X",
               "B-AGE",
               "I-AGE",
@@ -282,4 +286,7 @@ SLOT_TYPES = ["O",
               "B-WEATHER_ATTRIBUTE",
               "I-WEATHER_ATTRIBUTE",
               "B-WEATHER_TEMPERATURE_UNIT",
-              "I-WEATHER_TEMPERATURE_UNIT"]
+              "I-WEATHER_TEMPERATURE_UNIT"],
+              "atis":
+              []
+            }
