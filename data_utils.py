@@ -2,12 +2,25 @@ import csv
 import json
 
 from io import open
+import torch
 from torch import LongTensor
 import re
 import random
 import os
 import ast
 from torch.utils.data import Dataset
+import logging as logger
+
+import numpy as np
+from squad_utils import *
+import gluonnlp as nlp
+
+if is_torch_available():
+    import torch
+    from torch.utils.data import TensorDataset
+
+if is_tf_available():
+    import tensorflow as tf
 
 
 # detect pattern
@@ -427,8 +440,101 @@ def _parse_mtop(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O",
 
     return process_egs, process_egs_dict
 
+def _parse_multi_atis(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O", "X"]):
+    """
+    To process the flat representation of ATIS++ by taking the top level in the hierarchical representation
+    """
 
-class NLUDataset(Dataset):
+    # field_separator = nlp.data.Splitter('\t')
+
+    # # fields to select from the file: utterance, slot labels, intent, uid
+    # field_indices = [1, 3, 4, 0]
+
+    # train_data = nlp.data.TSVDataset(filename=data_path,
+    #                                  field_separator=field_separator,
+    #                                  num_discard_samples=1,
+    #                                  field_indices=field_indices)
+
+    process_egs = []
+    process_egs_dict = {}
+    distinct_domains = []
+    distinct_slots = []
+    with open(data_path) as tsv_file:
+        reader = csv.reader(tsv_file, delimiter="\t")
+        next(reader)
+        for i, line in enumerate(reader):
+            intent_str = line[3]
+
+            intent = intent_set.index(intent_str)
+
+            slots = line[3].split("\t")
+            utterance = line[1]
+
+            if intent_str not in intent_set:
+                intent_set.append(intent_str)
+
+            # slot_line = []
+            # if line[1] != '':
+            #     for item in slot_splits:
+            #         if item != '':
+            #             item_splits = item.split(":")
+            #             assert len(item_splits) == 4
+            #             slot_item = {"start": item_splits[0], "end": item_splits[1], "slot": item_splits[3]}
+            #             slot_line.append(slot_item)
+
+
+            # tokens = token_part["tokens"]
+            # tokenSpans = token_part["tokenSpans"]
+            # slots = []
+            # for tokenspan in tokenSpans:
+            #     nolabel = True
+            #     for slot_item in slot_line:
+            #         if slot_item["slot"] not in distinct_slots:
+            #             distinct_slots.append(slot_item["slot"])
+
+            #         start = tokenspan["start"]
+            #         if int(start) == int(slot_item["start"]):
+            #             nolabel = False
+            #             slot_ = "B-" + slot_item["slot"]
+            #             slots.append(slot_)
+            #             if slot_ not in slot_set:
+            #                 slot_set.append(slot_)
+            #             break
+            #         if int(slot_item["start"]) < int(start) < int(slot_item["end"]):
+            #             nolabel = False
+            #             slot_ = "I-" + slot_item["slot"]
+            #             slots.append(slot_)
+            #             if slot_ not in slot_set:
+            #                 slot_set.append(slot_)
+            #             break
+            #     if nolabel:
+            #         slots.append("O")
+
+            tokens = utterance.split()
+            assert len(slots) == len(tokens)
+
+            sub_tokens = ['[CLS]']
+            sub_slots = ['X']
+            for j, token in enumerate(tokens):
+                bert_toks = tokenizer.tokenize(token)
+                tag = slots[j]
+                if tag.startswith('B'):
+                    cont_tag = 'I' + tag[1:]
+                    sub_slots.extend([tag] + [cont_tag] * (len(bert_toks) - 1))
+                else:
+                    sub_slots.extend([tag] * len(bert_toks))
+
+            sub_tokens += ['[SEP]']
+            sub_slots.append('X')
+            assert len(sub_slots) == len(sub_tokens)
+
+            id_ = split+"_"+lang+"_"+str(i)
+            process_egs.append([' '.join(tokens), sub_tokens, intent, sub_slots, id_])
+            process_egs_dict.update({id_: (' '.join(tokens), sub_tokens, intent, sub_slots, id_)})
+
+    return process_egs, process_egs_dict
+
+class MultiPurposeDataset(Dataset):
     """  """
     def __init__(self,
                  data_path,
@@ -437,26 +543,25 @@ class NLUDataset(Dataset):
                  multi_head_out,
                  use_mono,
                  tokenizer,
-                 data_format,
-                 use_slots,
+                 data_format, # args
                  seed,
                  languages,
                  order_class,
                  order_lang,
                  order_lst,
-                 num_intent_tasks,
+                 num_class_tasks,
                  num_lang_tasks,
-                 memory_size=0,
-                 intent_types=[],
-                 slot_types=["O", "X"]):
+                 down_task,
+                 task_attrs,
+                 memory_size=0): 
 
         self.tokenizer = tokenizer
-        self.use_slots = use_slots
         self.data_format = data_format
 
-        self.intent_types = intent_types
+        self.down_task = down_task
+        
+        self.task_attrs = task_attrs
 
-        self.slot_types = slot_types
         self.data_path = data_path
 
         self.seed = seed
@@ -484,11 +589,11 @@ class NLUDataset(Dataset):
         for lang in self.languages:
             print("----------lang:", lang)
             print("Reading train split ... ")
-            self.train_set[lang] = self.read_split(lang, "train")
+            self.train_set[lang] = self.read_split(down_task, lang, "train")
             print("Reading dev split ... ")
-            self.dev_set[lang] = self.read_split(lang, "eval")
+            self.dev_set[lang] = self.read_split(down_task, lang, "eval")
             print("Reading test split ... ")
-            self.test_set[lang] = self.read_split(lang, "test")
+            self.test_set[lang] = self.read_split(down_task, lang, "test")
 
         if self.setup_option == "cil":
             """
@@ -509,16 +614,16 @@ class NLUDataset(Dataset):
                 ordered_test, _ = self.partition_per_intent(self.test_set[lang],
                                                             keys=ordered_intents) # using the same intent types order as the train
 
-                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.intent_types), num_intent_tasks)}
+                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.task_attrs["class_types"]), num_class_tasks)}
 
-                for i in range(0, len(self.intent_types), num_intent_tasks):
+                for i in range(0, len(self.task_attrs["class_types"]), num_class_tasks):
                     int_task_train = []
                     int_task_dev = []
                     int_task_test = []
 
-                    for j, intent in enumerate(ordered_intents[i:i+num_intent_tasks]):
+                    for j, intent in enumerate(ordered_intents[i:i+num_class_tasks]):
                         if self.multi_head_out or self.use_mono:
-                            # print(i, j, self.intent_types[intent], " ordered_train[intent]:", len(ordered_train[intent]))
+                            # print(i, j, self.task_attrs["class_types"][intent], " ordered_train[intent]:", len(ordered_train[intent]))
                             for eg in ordered_train[intent]:
                                 eg[2] = j
                                 int_task_train.append(eg)
@@ -535,22 +640,22 @@ class NLUDataset(Dataset):
                             int_task_dev.extend(ordered_dev[intent])
                             int_task_test.extend(ordered_test[intent])
 
-                    self.train_stream[lang].append({"intent_list": list(map(lambda x: self.intent_types[x],
-                                                                            ordered_intents[i:i+num_intent_tasks])),
+                    self.train_stream[lang].append({"class_list": list(map(lambda x: self.task_attrs["class_types"][x],
+                                                                            ordered_intents[i:i+num_class_tasks])),
                                                     "examples": AugmentedList(int_task_train,
                                                                               shuffle_between_epoch=True),
                                                     "size": len(int_task_train),
                                                     "lang": lang})
 
-                    self.dev_stream[lang].append({"intent_list": list(map(lambda x: self.intent_types[x],
-                                                                          ordered_intents[i:i+num_intent_tasks])),
+                    self.dev_stream[lang].append({"class_list": list(map(lambda x: self.class_types[x],
+                                                                          ordered_intents[i:i+num_class_tasks])),
                                                   "examples": AugmentedList(int_task_dev,
                                                                             shuffle_between_epoch=True),
                                                   "size": len(int_task_dev),
                                                   "lang": lang})
 
-                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": list(map(lambda x: self.intent_types[x],
-                                                                                         ordered_intents[i:i+num_intent_tasks])),
+                    self.test_stream[lang]["subtask_"+str(i)] = {"class_list": list(map(lambda x: self.class_types[x],
+                                                                                         ordered_intents[i:i+num_class_tasks])),
                                                                  "lang": lang,
                                                                  "examples": AugmentedList(int_task_test),
                                                                  "size": len(int_task_test)}
@@ -607,12 +712,12 @@ class NLUDataset(Dataset):
                 int_incremental_task_test = []
 
                 covered_intents = []
-                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.intent_types), num_intent_tasks)}
-                for i in range(0, len(self.intent_types), num_intent_tasks):
+                self.test_stream[lang] = {"subtask_"+str(i): {} for i in range(0, len(self.task_attrs["class_types"]), num_class_tasks)}
+                for i in range(0, len(self.task_attrs["class_types"]), num_class_tasks):
                     int_other_task_train = []
                     int_other_task_dev = []
 
-                    for intent in ordered_intents[i:i+num_intent_tasks]:
+                    for intent in ordered_intents[i:i+num_class_tasks]:
                         covered_intents.append(intent)
                         int_incremental_task_train.extend(ordered_train[intent])
                         int_incremental_task_dev.extend(ordered_dev[intent])
@@ -623,21 +728,21 @@ class NLUDataset(Dataset):
                             int_other_task_train.extend(self.set_intent_to_other(ordered_train[intent]))
                             int_other_task_dev.extend(self.set_intent_to_other(ordered_train[intent]))
 
-                    self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
+                    self.train_stream[lang].append({"intent_list": ordered_intents[i:i+num_class_tasks],
                                                     "examples": AugmentedList(int_incremental_task_train
                                                                               + int_other_task_train,
                                                                               shuffle_between_epoch=True),
                                                     "size": len(int_incremental_task_train),
                                                     "lang": lang})
 
-                    self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_intent_tasks],
+                    self.dev_stream[lang].append({"intent_list": ordered_intents[i:i+num_class_tasks],
                                                   "examples": AugmentedList(int_incremental_task_dev
                                                                             + int_other_task_dev,
                                                                             shuffle_between_epoch=True),
                                                   "size": len(int_incremental_task_dev),
                                                   "lang": lang})
 
-                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_intent_tasks],
+                    self.test_stream[lang]["subtask_"+str(i)] = {"intent_list": ordered_intents[i:i+num_class_tasks],
                                                                  "lang": lang,
                                                                  "examples": AugmentedList(int_incremental_task_test),
                                                                  "size": len(int_incremental_task_test)}
@@ -696,7 +801,7 @@ class NLUDataset(Dataset):
             if self.setup_cillia == "intents": # Horizontally goes linearly over all intents of each languages batch before moving to the next languages batch
                 for j in range(0, len(ordered_langs), num_lang_tasks):
                     lang_batch = ordered_langs[j:j+num_lang_tasks]
-                    for i in range(0, len(self.intent_types), num_intent_tasks):
+                    for i in range(0, len(self.task_attrs["class_types"]), num_intent_tasks):
                         int_lang_task_train = []
                         int_lang_task_dev = []
                         int_lang_task_test = {lang: [] for lang in self.languages}
@@ -729,7 +834,7 @@ class NLUDataset(Dataset):
                                                  for lang in int_lang_task_test})
 
             else: # Vertically goes linearly over all languages of each intent batch before moving to the next intents batch
-                for i in range(0, len(self.intent_types), num_intent_tasks):
+                for i in range(0, len(self.task_attrs["class_types"]), num_intent_tasks):
                     for j in range(0, len(ordered_langs), num_lang_tasks):
                         int_lang_task_train = []
                         int_lang_task_dev = []
@@ -784,11 +889,11 @@ class NLUDataset(Dataset):
 
                 ## Train
                 inc_intents_set = []
-                for i in range(num_intent_tasks, len(self.intent_types), num_intent_tasks):
+                for i in range(num_intent_tasks, len(self.task_attrs["class_types"]), num_intent_tasks):
                     inc_intents_set.append(ordered_intents[0:i])
 
-                if i < len(self.intent_types):
-                    inc_intents_set.append(ordered_intents[0:len(self.intent_types)])
+                if i < len(self.task_attrs["class_types"]):
+                    inc_intents_set.append(ordered_intents[0:len(self.task_attrs["class_types"])])
 
                 print("inc_intents_set:", len(inc_intents_set))
                 inc_train_set = {str(intents_l): [] for intents_l in inc_intents_set}
@@ -801,7 +906,7 @@ class NLUDataset(Dataset):
                         else:
                             inc_train_set[joined_intents_l].extend(ordered_train[intent])
 
-                self.train_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x],
+                self.train_stream[lang] = [{"class_list": list(map(lambda x: self.task_attrs["class_types"][x],
                                                                     ast.literal_eval(joined_intents_l))),
                                             "lang": lang,
                                             "examples": AugmentedList(inc_train_set[joined_intents_l],
@@ -820,7 +925,7 @@ class NLUDataset(Dataset):
                         else:
                             inc_dev_set[joined_intents_l].extend(ordered_dev[intent])
 
-                self.dev_stream[lang] = [{"intent_list": list(map(lambda x: self.intent_types[x],
+                self.dev_stream[lang] = [{"class_list": list(map(lambda x: self.task_attrs["class_types"][x],
                                                                   ast.literal_eval(joined_intents_l))),
                                           "lang": lang,
                                           "examples": AugmentedList(inc_dev_set[joined_intents_l]),
@@ -839,7 +944,7 @@ class NLUDataset(Dataset):
                         else:
                             int_task_test.extend(ordered_test[intent])
 
-                # for i in range(0, len(self.intent_types), num_intent_tasks):
+                # for i in range(0, len(self.task_attrs["class_types"]), num_intent_tasks):
                 #     int_task_test = []
                 #     for j, intent in enumerate(ordered_intents[i:i+num_intent_tasks]):
                 #         if self.multi_head_out:
@@ -849,7 +954,7 @@ class NLUDataset(Dataset):
                 #         else:
                 #             int_task_test.extend(ordered_test[intent])
 
-                    self.test_stream[lang][subtask] = {"intent_list": list(map(lambda x: self.intent_types[x],
+                    self.test_stream[lang][subtask] = {"class_list": list(map(lambda x: self.task_attrs["class_types"][x],
                                                                                inc_intents_set[i])),
                                                        "lang": lang,
                                                        "examples": AugmentedList(int_task_test),
@@ -1001,57 +1106,74 @@ class NLUDataset(Dataset):
     def save_global_process_egs_dict(self, process_egs_dict):
         self.process_egs_dict_global.update(process_egs_dict)
 
-    def read_split(self, lang, split):
+    def read_split(self, down_task, lang, split):
         """
 
-        :param fpaths:
+        :param down_task: the name of the downstream task 
+        :param lang: the language of the data to be pre-processed 
+        :param split: the split: train, test, or dev
         :return:
         """
+        if down_task == "NLU":
+            intent_set = self.task_attrs["class_types"]
+            slot_set = self.task_attrs["slot_types"]
+            file_path = os.path.join(os.path.join(self.data_path, lang), split)
 
-        intent_set = self.intent_types
-        slot_set = self.slot_types
-        file_path = os.path.join(os.path.join(self.data_path, lang),
-                                 split)
+            if self.data_format == "tsv":
+                process_egs, intent_set, slot_set, process_egs_dict = _parse_tsv(file_path + "-" + lang + ".tsv",
+                                                                                self.tokenizer,
+                                                                                split,
+                                                                                lang,
+                                                                                intent_set,
+                                                                                slot_set)
 
-        if self.data_format == "tsv":
-            process_egs, intent_set, slot_set, process_egs_dict = _parse_tsv(file_path + "-" + lang + ".tsv",
-                                                                             self.tokenizer,
-                                                                             split,
-                                                                             lang,
-                                                                             intent_set,
-                                                                             slot_set)
+            elif self.data_format == "json":
+                process_egs, intent_set, process_egs_dict = _parse_json(file_path + ".json",
+                                                                        self.tokenizer,
+                                                                        split,
+                                                                        lang,
+                                                                        intent_set)
+            else:
+                process_egs, process_egs_dict = _parse_mtop(file_path + ".txt",
+                                                            self.tokenizer,
+                                                            split,
+                                                            lang,
+                                                            intent_set,
+                                                            slot_set)
 
-        elif self.data_format == "json":
-            process_egs, intent_set, process_egs_dict = _parse_json(file_path + ".json",
-                                                                    self.tokenizer,
-                                                                    split,
-                                                                    lang,
-                                                                    intent_set)
-        else:
-            process_egs, process_egs_dict = _parse_mtop(file_path + ".txt",
-                                                        self.tokenizer,
-                                                        split,
-                                                        lang,
-                                                        intent_set,
-                                                        slot_set)
+            process_egs_shuffled = random.sample(process_egs,
+                                                k=len(process_egs))
 
-        process_egs_shuffled = random.sample(process_egs,
-                                             k=len(process_egs))
+            self.save_global_process_egs_dict(process_egs_dict)
 
-        self.save_global_process_egs_dict(process_egs_dict)
+            return process_egs_shuffled
+        elif down_task == "TYDIQA":
+            dataset, examples, features = load_and_cache_qa_examples(file_path,
+                                                                     split, 
+                                                                     self.task_attrs["overwrite_cache"], 
+                                                                     self.task_attrs["local_rank"], 
+                                                                     self.task_attrs["max_seq_length"], 
+                                                                     self.task_attrs["doc_stride"], 
+                                                                     self.task_attrs["max_query_length"], 
+                                                                     self.task_attrs["threads"], 
+                                                                     self.tokenizer, 
+                                                                     evaluate=(lambda x: True if x=="train" else False)(split), 
+                                                                     output_examples=True, 
+                                                                     language=lang, 
+                                                                     lang2id=None)
 
-        return process_egs_shuffled
+            return examples
 
-    def partition_per_intent(self, processed_egs, keys=None):
-        intent_dict = {intent: [] for intent in range(len(self.intent_types))}
+    def partition_per_class(self, processed_egs, keys=None):
+        class_dict = {_class: [] for _class in range(len(self.task_attrs["class_types"]))}
         for eg in processed_egs:
-            intent_dict[eg[2]].append(eg)
+            class_dict[eg[2]].append(eg)
 
         if keys:
-            return {k: intent_dict[k] for k in keys}, keys
+            return {k: class_dict[k] for k in keys}, keys
 
         if self.order_class == 2:
-            keys = list(intent_dict.keys())
+            keys = list(class_dict.keys())
             print(keys)
             random.shuffle(keys)
         else:
@@ -1060,11 +1182,11 @@ class NLUDataset(Dataset):
             if self.order_class == 0:
                 reverse_flag = True
 
-            keys = sorted(intent_dict,
-                          key=lambda k: len(intent_dict[k]),
+            keys = sorted(class_dict,
+                          key=lambda k: len(class_dict[k]),
                           reverse=reverse_flag)
 
-        ordered_dict = {k: intent_dict[k] for k in keys}
+        ordered_dict = {k: class_dict[k] for k in keys}
         return ordered_dict, keys
 
     def set_intent_to_other(self, processed_egs):
