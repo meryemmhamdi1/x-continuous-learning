@@ -143,4 +143,5 @@ tests/*
 # Results
 backups/*
 Plots/*
-new_predictions/*
+tests/*
+backups/*
