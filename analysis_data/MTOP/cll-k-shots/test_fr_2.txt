@@ -1,0 +1,426 @@
+Est - ce que ce sera mouillé aujourd'hui ?	[CLS] Est - ce que ce sera mo ##uil ##lé aujourd ##' ##hu ##i ? [SEP]	0	X O O O O O O B-WEATHER_ATTRIBUTE X X B-DATE_TIME X X X O X	3154
+le temps va être nuageux toute la journée	[CLS] le temps va être nua ##geu ##x toute la journée [SEP]	0	X O O O O B-WEATHER_ATTRIBUTE X X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2053
+Quand est - ce qu' il risque de neiger à Boston ?	[CLS] Quand est - ce qu ##' il risque de neige ##r à Boston ? [SEP]	0	X O O O O O X O O O B-WEATHER_ATTRIBUTE X O B-LOCATION O X	1275
+est - il nuageux	[CLS] est - il nua ##geu ##x [SEP]	0	X O O O B-WEATHER_ATTRIBUTE X X X	2597
+fait - il trop froid pour des shorts	[CLS] fait - il trop froid pour des short ##s [SEP]	0	X O O O O B-WEATHER_ATTRIBUTE O O B-WEATHER_ATTRIBUTE X X	282
+Quelle sera la température demain ?	[CLS] Quelle sera la température dem ##ain ? [SEP]	0	X O O O O B-DATE_TIME X O X	1321
+Je dois m' attendre à combien de pluie plus tard ?	[CLS] Je dois m ##' attendre à com ##bien de plu ##ie plus tard ? [SEP]	0	X O O O X O O O X O B-WEATHER_ATTRIBUTE X B-DATE_TIME I-DATE_TIME O X	53
+à combien descend le thermomètre aujourd'hui en degrés fahrenheit	[CLS] à com ##bien des ##cend le the ##rmo ##mètre aujourd ##' ##hu ##i en degré ##s fahren ##heit [SEP]	0	X O O X B-WEATHER_ATTRIBUTE X I-WEATHER_ATTRIBUTE I-WEATHER_ATTRIBUTE X X B-DATE_TIME X X X O O X B-WEATHER_TEMPERATURE_UNIT X X	3059
+Où est la tempête tropicale ?	[CLS] O ##ù est la temp ##ête tropical ##e ? [SEP]	0	X O X O O B-WEATHER_ATTRIBUTE X I-WEATHER_ATTRIBUTE X O X	265
+Quelles sont les chances qu’ il pleuve à Dublin ce vendredi	[CLS] Quelle ##s sont les chances [UNK] il pl ##eu ##ve à Dublin ce vendre ##di [SEP]	0	X O X O O O O O B-WEATHER_ATTRIBUTE X X O B-LOCATION B-DATE_TIME I-DATE_TIME X X	2834
+est - ce qu' il fera froid à Londres ?	[CLS] est - ce qu ##' il fera froid à Londres ? [SEP]	0	X O O O O X O O B-WEATHER_ATTRIBUTE O B-LOCATION O X	2599
+Est - ce que je devrais prendre un parapluie ?	[CLS] Est - ce que je de ##vra ##is prendre un para ##plu ##ie ? [SEP]	0	X O O O O O O X X O O B-WEATHER_ATTRIBUTE X X O X	289
+Indique - moi la météo .	[CLS] In ##dique - moi la mét ##éo . [SEP]	0	X O X O O O O X O X	2830
+Peux - tu me dire quel temps il fera à 8 h ?	[CLS] Peu ##x - tu me dire quel temps il fera à 8 h ? [SEP]	0	X O X O O O O O O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1675
+Prévisions à Brisbane demain .	[CLS] Pr ##évi ##sions à Brisbane dem ##ain . [SEP]	0	X O X X O B-LOCATION B-DATE_TIME X O X	1677
+Est - ce qu' il pleut à Orlando aujourd'hui ?	[CLS] Est - ce qu ##' il pl ##eu ##t à Orlando aujourd ##' ##hu ##i ? [SEP]	0	X O O O O X O B-WEATHER_ATTRIBUTE X X O B-LOCATION B-DATE_TIME X X X O X	3103
+Ai - je besoin d' une veste à Lake Shasta aujourd'hui ?	[CLS] Ai - je besoin d ##' une veste à Lake Sha ##sta aujourd ##' ##hu ##i ? [SEP]	0	X O O O O O X O B-WEATHER_ATTRIBUTE O B-LOCATION I-LOCATION X B-DATE_TIME X X X O X	2031
+Température à Seattle ce soir en Fahrenheit	[CLS] Tem ##pé ##ratu ##re à Seattle ce soir en Fa ##hren ##heit [SEP]	0	X O X X X O B-LOCATION B-DATE_TIME I-DATE_TIME O B-WEATHER_TEMPERATURE_UNIT X X X	3053
+Température intérieure demain F	[CLS] Tem ##pé ##ratu ##re intérieur ##e dem ##ain F [SEP]	0	X O X X X B-LOCATION X B-DATE_TIME X B-WEATHER_TEMPERATURE_UNIT X	2557
+quand est - ce qu’ il est censé pleuvoir de nouveau	[CLS] quand est - ce [UNK] il est cens ##é pl ##eu ##voir de nouveau [SEP]	0	X O O O O O O O O X B-WEATHER_ATTRIBUTE X X O O X	3099
+À quel degré fera - t - il froid aujourd'hui ?	[CLS] À quel degré fera - t - il froid aujourd ##' ##hu ##i ? [SEP]	0	X O O O O O O O O B-WEATHER_ATTRIBUTE B-DATE_TIME X X X O X	3084
+Est - ce qu' il faut que je mette un manteau aujourd'hui ?	[CLS] Est - ce qu ##' il faut que je mette un man ##teau aujourd ##' ##hu ##i ? [SEP]	0	X O O O O X O O O O O O B-WEATHER_ATTRIBUTE X B-DATE_TIME X X X O X	2831
+affiche la météo à Shipston sur Stour	[CLS] affiche la mét ##éo à Ships ##ton sur St ##our [SEP]	0	X O O O X O B-LOCATION X I-LOCATION I-LOCATION X X	2180
+Va - t - il neiger aujourd'hui ?	[CLS] Va - t - il neige ##r aujourd ##' ##hu ##i ? [SEP]	0	X O O O O O B-WEATHER_ATTRIBUTE X B-DATE_TIME X X X O X	1351
+Quelles sont les prévisions pour Juno , Alaska , pour la semaine prochaine ?	[CLS] Quelle ##s sont les pré ##vision ##s pour Juno , Alaska , pour la semaine pro ##cha ##ine ? [SEP]	0	X O X O O O X X O B-LOCATION I-LOCATION I-LOCATION O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X O X	1175
+Y aura - t - il du vent cet après midi ?	[CLS] Y aura - t - il du vent cet après midi ? [SEP]	0	X O O O O O O B-WEATHER_ATTRIBUTE I-WEATHER_ATTRIBUTE B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1280
+combien de centimètres de neige sont tombés hier ?	[CLS] com ##bien de cent ##im ##ètres de neige sont tomb ##és hier ? [SEP]	0	X O X O O X X O B-WEATHER_ATTRIBUTE O O X B-DATE_TIME O X	2261
+Quelles sont les prévisions pour la semaine prochaine ?	[CLS] Quelle ##s sont les pré ##vision ##s pour la semaine pro ##cha ##ine ? [SEP]	0	X O X O O O X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X O X	1251
+Donne - moi la météo en Nouvelle - Zélande	[CLS] Don ##ne - moi la mét ##éo en Nouvelle - Zélande [SEP]	0	X O X O O O O X O B-LOCATION I-LOCATION I-LOCATION X	2805
+ai - je besoin de prendre un parapluie ?	[CLS] ai - je besoin de prendre un para ##plu ##ie ? [SEP]	0	X O O O O O O O B-WEATHER_ATTRIBUTE X X O X	2621
+À quelle distance se trouve la tempête que j’ entends dehors ?	[CLS] À quelle distance se trouve la temp ##ête que [UNK] enten ##ds dehors ? [SEP]	0	X O O O O O O B-WEATHER_ATTRIBUTE X O O O X O O X	267
+dis moi la météo à Rome	[CLS] dis moi la mét ##éo à Rome [SEP]	0	X O O O O X O B-LOCATION X	559
+Quand la neige commence - t - elle à tomber ce soir ?	[CLS] Quand la neige commence - t - elle à tombe ##r ce soir ? [SEP]	0	X O O B-WEATHER_ATTRIBUTE O O O O O O O X B-DATE_TIME I-DATE_TIME O X	1279
+Comment va être la météo dans ma région aujourd'hui ?	[CLS] Comment va être la mét ##éo dans ma région aujourd ##' ##hu ##i ? [SEP]	0	X O O O O O X O B-LOCATION O B-DATE_TIME X X X O X	281
+Y a - t - il des alertes météo pour le nord - ouest du Pacifique ?	[CLS] Y a - t - il des ale ##rtes mét ##éo pour le nord - ouest du Pacifique ? [SEP]	0	X O O O O O O O O X O X O O B-LOCATION I-LOCATION I-LOCATION I-LOCATION I-LOCATION O X	1265
+Quelles sont les prévisions pour 18 heures aujourd'hui à Doral ?	[CLS] Quelle ##s sont les pré ##vision ##s pour 18 heures aujourd ##' ##hu ##i à Dora ##l ? [SEP]	0	X O X O O O X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X X O B-LOCATION X O X	1427
+Qu' est - ce qu' on prévoit comme température entre 14 h et 19 h ?	[CLS] Qu ##' est - ce qu ##' on prévoit comme température entre 14 h et 19 h ? [SEP]	0	X O X O O O O X O O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	3104
+Quel temps fera - t - il d' ici à 10 h 00 ?	[CLS] Que ##l temps fera - t - il d ##' ici à 10 h 00 ? [SEP]	0	X O X O O O O O O B-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	2264
+est - ce que j' ai besoin d' un imper aujourd'hui	[CLS] est - ce que j ##' ai besoin d ##' un im ##per aujourd ##' ##hu ##i [SEP]	0	X O O O O O X O O O X O B-WEATHER_ATTRIBUTE X B-DATE_TIME X X X X	1992
+Veuillez indiquer les prévisions pour le dimanche de Pâques à 14 heures .	[CLS] Ve ##uille ##z indique ##r les pré ##vision ##s pour le dimanche de P ##â ##ques à 14 heures . [SEP]	0	X O X X O X O O X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	626
+Y aura - t - il de la grêle ?	[CLS] Y aura - t - il de la gr ##êl ##e ? [SEP]	0	X O O O O O O O O B-WEATHER_ATTRIBUTE X X O X	1388
+Devrais - je prendre un écran solaire ?	[CLS] Dev ##rais - je prendre un écran solaire ? [SEP]	0	X O X O O O O B-WEATHER_ATTRIBUTE I-WEATHER_ATTRIBUTE O X	2670
+Comment sera la météo à 5 h du matin ?	[CLS] Comment sera la mét ##éo à 5 h du matin ? [SEP]	0	X O O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	2690
+Peux - tu me donner la météo pour le premier week - end de septembre à Prague ?	[CLS] Peu ##x - tu me donner la mét ##éo pour le premier week - end de septembre à Prague ? [SEP]	0	X O X O O O O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O B-LOCATION O X	2832
+Va - t - il neiger avant 8 heures du matin ?	[CLS] Va - t - il neige ##r avant 8 heures du matin ? [SEP]	0	X O O O O O B-WEATHER_ATTRIBUTE X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	2000
+PLEUVRA - T - IL À 17 H DEMAIN ?	[CLS] PL ##E ##U ##V ##RA - T - IL À 17 H DEM ##A ##IN ? [SEP]	0	X B-WEATHER_ATTRIBUTE X X X X O O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X O X	2015
+Est ce qu’ il va pleuvoir quand nous serons à Glasgow aujourd’hui à 3h ?	[CLS] Est ce [UNK] il va pl ##eu ##voir quand nous ser ##ons à Glasgow [UNK] à 3 ##h ? [SEP]	0	X O O O O O B-WEATHER_ATTRIBUTE X X O O O X O B-LOCATION B-DATE_TIME I-DATE_TIME I-DATE_TIME X O X	625
+DOIS - JE PORTER DES BOTTES DE PLUIE ?	[CLS] DOI ##S - J ##E P ##OR ##TER DE ##S B ##OT ##TE ##S DE PL ##UI ##E ? [SEP]	0	X O X O O X O X X O X B-WEATHER_ATTRIBUTE X X X I-WEATHER_ATTRIBUTE I-WEATHER_ATTRIBUTE X X O X	1298
+Quelle est la température la plus élevée aujourd'hui ?	[CLS] Quelle est la température la plus élevée aujourd ##' ##hu ##i ? [SEP]	0	X O O O O O O O B-DATE_TIME X X X O X	631
+Prévisions météo pour les 15 prochains jours	[CLS] Pr ##évi ##sions mét ##éo pour les 15 pro ##cha ##ins jours [SEP]	0	X O X X O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME X	2835
+est - ce qu’ il fait froid dans les îles Galápagos	[CLS] est - ce [UNK] il fait froid dans les îles Gal ##áp ##agos [SEP]	0	X O O O O O O B-WEATHER_ATTRIBUTE O O B-LOCATION I-LOCATION X X X	3081
+devrais - je apporter un pantalon ce soir	[CLS] de ##vra ##is - je app ##orter un pan ##talo ##n ce soir [SEP]	0	X O X X O O O X O B-WEATHER_ATTRIBUTE X X B-DATE_TIME I-DATE_TIME X	1642
+Donne - moi le bulletin météo du 26 mai	[CLS] Don ##ne - moi le bu ##llet ##in mét ##éo du 26 mai [SEP]	0	X O X O O O O X X O X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2837
+Dois - je porter des vêtements chauds ce lundi ?	[CLS] Dois - je porter des v ##êtements cha ##uds ce lu ##ndi ? [SEP]	0	X O O O O O B-WEATHER_ATTRIBUTE X I-WEATHER_ATTRIBUTE X B-DATE_TIME I-DATE_TIME X O X	3086
+Quel temps fait - il à Baltimore aujourd'hui ?	[CLS] Que ##l temps fait - il à Baltimore aujourd ##' ##hu ##i ? [SEP]	0	X O X O O O O O B-LOCATION B-DATE_TIME X X X O X	1434
+Quelles sont les prévisions météo pour Melbourne lorsque je vais atterrir samedi matin ?	[CLS] Quelle ##s sont les pré ##vision ##s mét ##éo pour Melbourne lorsque je vai ##s att ##er ##rir same ##di matin ? [SEP]	0	X O X O O O X X O X O B-LOCATION O O O X O X X B-DATE_TIME X I-DATE_TIME O X	2260
+Quel temps fait - il en Floride ?	[CLS] Que ##l temps fait - il en Floride ? [SEP]	0	X O X O O O O O B-LOCATION O X	1404
+cherche la météo du 9 au 14 mai s’ il te plait ?	[CLS] cherche la mét ##éo du 9 au 14 mai [UNK] il te pla ##it ? [SEP]	0	X O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O O O O X O X	616
+La météo risque d' être comment à Clearwater Beach demain ?	[CLS] La mét ##éo risque d ##' être comment à Clear ##water Beach dem ##ain ? [SEP]	0	X O O X O O X O O O B-LOCATION X I-LOCATION B-DATE_TIME X O X	308
+quelle sera la météo à Orlando la semaine prochaine ?	[CLS] quelle sera la mét ##éo à Orlando la semaine pro ##cha ##ine ? [SEP]	0	X O O O O X O B-LOCATION O B-DATE_TIME I-DATE_TIME X X O X	2071
+Y a - t - il des orages de prévus	[CLS] Y a - t - il des ora ##ges de prévu ##s [SEP]	0	X O O O O O O O B-WEATHER_ATTRIBUTE X O O X X	1993
+Quel est le temps qu' il fait au Texas en ce moment même	[CLS] Que ##l est le temps qu ##' il fait au Texas en ce moment même [SEP]	0	X O X O O O O X O O O B-LOCATION O O O O X	2575
+À quelle température descend le thermomètre à Londres en ce moment ?	[CLS] À quelle température des ##cend le the ##rmo ##mètre à Londres en ce moment ? [SEP]	0	X O O O B-WEATHER_ATTRIBUTE X O O X X O B-LOCATION O O O O X	2629
+Quelle est la température en ville ?	[CLS] Quelle est la température en ville ? [SEP]	0	X O O O O B-LOCATION I-LOCATION O X	1334
+Dis - moi quel temps il fera samedi	[CLS] Dis - moi quel temps il fera same ##di [SEP]	0	X O O O O O O O B-DATE_TIME X X	552
+Il va faire chaud à quel point ce week - end	[CLS] Il va faire cha ##ud à quel point ce week - end [SEP]	0	X O O O B-WEATHER_ATTRIBUTE X O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2592
+Appelons Jane Austin Juthey	[CLS] App ##elo ##ns Jane Austin Ju ##the ##y [SEP]	1	X O X X B-CONTACT I-CONTACT I-CONTACT X X X	2317
+appelle Cade appeler Clark en utilisant Whatsapp	[CLS] appelle Ca ##de appel ##er Clark en utilisant What ##sa ##pp [SEP]	1	X O B-CONTACT X O X B-CONTACT O O B-NAME_APP X X X	2167
+Appelle mon cousin tout de suite .	[CLS] App ##elle mon cousin tout de suite . [SEP]	1	X O X B-CONTACT I-CONTACT O O O O X	2213
+appelez en vidéo Mariana sur Whatsapp	[CLS] appel ##ez en vidéo Mariana sur What ##sa ##pp [SEP]	1	X O X O O B-CONTACT O B-NAME_APP X X X	422
+Appelle Alex	[CLS] App ##elle Alex [SEP]	1	X O X B-CONTACT X	787
+Je veux appeler mon groupe étudiants Master	[CLS] Je veu ##x appel ##er mon groupe étudiants Master [SEP]	1	X O O X O X O O B-GROUP I-GROUP X	2141
+appelle le frère de Peyton	[CLS] appelle le frère de Pe ##yton [SEP]	1	X O O B-CONTACT I-CONTACT I-CONTACT X X	2296
+En cours d' appel à la famille	[CLS] En cours d ##' appel à la famille [SEP]	1	X O O O X O O O B-CONTACT X	1782
+je veux appeler ma sœur	[CLS] je veu ##x appel ##er ma sœur [SEP]	1	X O O X O X B-CONTACT I-CONTACT X	2284
+appelle Lance Carpenter	[CLS] appelle Lance Carpenter [SEP]	1	X O B-CONTACT I-CONTACT X	2132
+Appelle mon patron en visio	[CLS] App ##elle mon patron en visi ##o [SEP]	1	X O X B-CONTACT I-CONTACT O O X X	2286
+Appelle en vidéo le groupe des amis sur Wechat	[CLS] App ##elle en vidéo le groupe des amis sur We ##chat [SEP]	1	X O X O O B-GROUP I-GROUP I-GROUP I-GROUP O B-NAME_APP X X	392
+appelle Baird et Roth	[CLS] appelle Baird et Roth [SEP]	1	X O B-CONTACT O B-CONTACT X	33
+J’ aimerais prendre contact avec Gregory	[CLS] [UNK] aime ##rais prendre contact avec Gregory [SEP]	1	X O O X O O O B-CONTACT X	380
+appelle Rylie Shannon sur WhatsApp	[CLS] appelle R ##yli ##e Shannon sur What ##s ##A ##pp [SEP]	1	X O B-CONTACT X X I-CONTACT O B-NAME_APP X X X X	430
+appelle mon compagnon appelle mon petit ami avec Whatsapp	[CLS] appelle mon compagno ##n appelle mon petit ami avec What ##sa ##pp [SEP]	1	X O O B-CONTACT X O O B-CONTACT I-CONTACT O B-NAME_APP X X X	2163
+Peux - tu appeler ma mère , s' il te plaît ?	[CLS] Peu ##x - tu appel ##er ma mère , s ##' il te pla ##ît ? [SEP]	1	X O X O O O X B-CONTACT I-CONTACT O O X O O O X O X	2857
+Appelle mon cousin	[CLS] App ##elle mon cousin [SEP]	1	X O X O B-CONTACT X	796
+appelez Loren	[CLS] appel ##ez Lor ##en [SEP]	1	X O X B-CONTACT X X	377
+appelle avec Sustainability	[CLS] appelle avec Sus ##tain ##ability [SEP]	1	X O O B-GROUP X X X	12
+Appelle Steven	[CLS] App ##elle Steven [SEP]	1	X O X B-CONTACT X	2794
+appelle Alana Ortega Smith	[CLS] appelle Alan ##a Ortega Smith [SEP]	1	X O B-CONTACT X I-CONTACT I-CONTACT X	2138
+lance un appel vidéo avec les personnes âgées de la famille sur Messenger	[CLS] lance un appel vidéo avec les personnes âgé ##es de la famille sur Messenger [SEP]	1	X O O O O O O B-GROUP I-GROUP X O O O O B-NAME_APP X	2142
+Appelle Holly , s’ il te plaît	[CLS] App ##elle Holly , [UNK] il te pla ##ît [SEP]	1	X O X B-CONTACT O O O O O X X	129
+appelle Marissa	[CLS] appelle Mari ##ssa [SEP]	1	X O B-CONTACT X X	2137
+appelez Aria T	[CLS] appel ##ez Aria T [SEP]	1	X O X B-CONTACT I-CONTACT X	600
+J' aimerai reprendre contact avec Jane	[CLS] J ##' aime ##rai reprendre contact avec Jane [SEP]	1	X O X O X O O O B-CONTACT X	9
+Appelle Antigua Cafe sur Taraval Street à San Francisco	[CLS] App ##elle Antigua Cafe sur Tara ##val Street à San Francisco [SEP]	1	X O X B-CONTACT I-CONTACT I-CONTACT I-CONTACT X I-CONTACT I-CONTACT I-CONTACT I-CONTACT X	1761
+appelle le petit ami de Debby Gabourel	[CLS] appelle le petit ami de De ##bby Ga ##bour ##el [SEP]	1	X O B-CONTACT I-CONTACT I-CONTACT I-CONTACT I-CONTACT X I-CONTACT X X X	708
+appelle l' oncle de Ying Sperandio	[CLS] appelle l ##' oncle de Ying Sp ##eran ##dio [SEP]	1	X O B-CONTACT X I-CONTACT I-CONTACT I-CONTACT I-CONTACT X X X	2295
+appelez Johnny en vidéo sur Whatsapp	[CLS] appel ##ez Johnny en vidéo sur What ##sa ##pp [SEP]	1	X O X B-CONTACT O O O B-NAME_APP X X X	432
+appelle Baird Brandon maintenant	[CLS] appelle Baird Brandon maintenant [SEP]	1	X O B-CONTACT I-CONTACT O X	2309
+appelle Trevor Peck en tchat vidéo sur WhatsApp	[CLS] appelle Trevor Peck en t ##chat vidéo sur What ##s ##A ##pp [SEP]	1	X O B-CONTACT I-CONTACT O O X O O B-NAME_APP X X X X	2751
+Je dois parler à mon père , appelle - le tout de suite s' il te plaît	[CLS] Je dois parler à mon père , appelle - le tout de suite s ##' il te pla ##ît [SEP]	1	X O O O O B-CONTACT I-CONTACT O O O O O O O O X O O O X X	2450
+Commence un appel vidéo avec ma maman s' il te plaît	[CLS] Comme ##nce un appel vidéo avec ma mama ##n s ##' il te pla ##ît [SEP]	1	X O X O O O O O B-CONTACT X O X O O O X X	2793
+Veuillez appeler Silas Everett Castillo	[CLS] Ve ##uille ##z appel ##er Si ##las Everett Castillo [SEP]	1	X O X X O X B-CONTACT X I-CONTACT I-CONTACT X	521
+appelle Ryan Sweeney et Antonio	[CLS] appelle Ryan Sweeney et Antonio [SEP]	1	X O B-CONTACT I-CONTACT O B-CONTACT X	2740
+appelle Brian s’ il te plait	[CLS] appelle Brian [UNK] il te pla ##it [SEP]	1	X O B-CONTACT O O O O X X	733
+Démarrez un appel à la mamie de Stéphanie Doughery	[CLS] D ##ém ##arre ##z un appel à la mam ##ie de St ##ép ##hani ##e Doug ##her ##y [SEP]	1	X O X X X O O O B-CONTACT I-CONTACT X I-CONTACT I-CONTACT X X X I-CONTACT X X X	21
+appelle Carole Gregory	[CLS] appelle Carole Gregory [SEP]	1	X O B-CONTACT I-CONTACT X	2738
+appelle mon cousin Nevaeh	[CLS] appelle mon cousin Ne ##va ##eh [SEP]	1	X O B-CONTACT I-CONTACT I-CONTACT X X X	1698
+J’ ai besoin d’ appeler Jimmy	[CLS] [UNK] ai besoin [UNK] appel ##er Jimmy [SEP]	1	X O O O O O X B-CONTACT X	785
+Veuillez appeler James Glover Wilkinson	[CLS] Ve ##uille ##z appel ##er James Glover Wilkinson [SEP]	1	X O X X O X B-CONTACT I-CONTACT I-CONTACT X	519
+Téléphone à Eva	[CLS] Té ##lé ##phone à Eva [SEP]	1	X O X X O B-CONTACT X	682
+peux tu appeler le 504 - 555 - 4870	[CLS] peu ##x tu appel ##er le 504 - 555 - 487 ##0 [SEP]	1	X O X O O X O B-PHONE_NUMBER I-PHONE_NUMBER I-PHONE_NUMBER I-PHONE_NUMBER I-PHONE_NUMBER X X	379
+essayez d' appeler dane Brandon	[CLS] essay ##ez d ##' appel ##er dane Brandon [SEP]	1	X O X O X O X B-CONTACT I-CONTACT X	727
+Appelle mon père	[CLS] App ##elle mon père [SEP]	1	X O X B-CONTACT I-CONTACT X	2210
+Appelle William Mclean Ochoa , s' il te plaît	[CLS] App ##elle William M ##cle ##an O ##choa , s ##' il te pla ##ît [SEP]	1	X O X B-CONTACT I-CONTACT X X I-CONTACT X O O X O O O X X	2204
+appelle mon père Hendrix	[CLS] appelle mon père Hendrix [SEP]	1	X O B-CONTACT I-CONTACT I-CONTACT X	2247
+appelez Ben	[CLS] appel ##ez Ben [SEP]	1	X O X B-CONTACT X	757
+Je veux appeler Trinity Nannette Bonilla	[CLS] Je veu ##x appel ##er Trinity Nan ##nette Bon ##illa [SEP]	1	X O O X O X B-CONTACT I-CONTACT X I-CONTACT X X	516
+peux - tu appeler Bryson , le fils d' Emery	[CLS] peu ##x - tu appel ##er Br ##ys ##on , le fils d ##' Emery [SEP]	1	X O X O O O X B-CONTACT X X I-CONTACT I-CONTACT I-CONTACT I-CONTACT X I-CONTACT X	2158
+appelez Catalina trois	[CLS] appel ##ez Catalina trois [SEP]	1	X O X B-CONTACT B-ORDINAL X	483
+Appelle Amy à la place	[CLS] App ##elle Amy à la place [SEP]	1	X O X B-CONTACT O O O X	493
+essaie d' appeler sal Crockett	[CLS] essai ##e d ##' appel ##er sal C ##rock ##ett [SEP]	1	X O X O X O X B-CONTACT I-CONTACT X X X	2308
+appelez Jackson Miranda maintenant	[CLS] appel ##ez Jackson Miranda maintenant [SEP]	1	X O X B-CONTACT I-CONTACT O X	734
+J’ aimerais faire un appel vidéo avec Kennedy Gardner et Alejandro Potts sur WhatsApp	[CLS] [UNK] aime ##rais faire un appel vidéo avec Kennedy Gardner et Alejandro Pot ##ts sur What ##s ##A ##pp [SEP]	1	X O O X O O O O O B-CONTACT I-CONTACT O B-CONTACT I-CONTACT X O B-NAME_APP X X X X	10
+Appelle Vicky	[CLS] App ##elle Vicky [SEP]	1	X O X B-CONTACT X	793
+Lance un appel avec Jack	[CLS] Lance un appel avec Jack [SEP]	1	X O O O O B-CONTACT X	127
+Veuillez démarrer un appel avec Junior	[CLS] Ve ##uille ##z dé ##mar ##rer un appel avec Junior [SEP]	1	X O X X O X X O O O B-CONTACT X	111
+Rappelle - moi le 13 d’ envoyer sa carte d’ anniversaire à Tracie .	[CLS] Rap ##pelle - moi le 13 [UNK] en ##voy ##er sa carte [UNK] anniversaire à Tra ##cie . [SEP]	2	X O X O B-PERSON_REMINDED B-DATE_TIME I-DATE_TIME O B-TODO X X I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO X O X	974
+crée un rappel pour le match de baseball de Joe ce soir à 19 h	[CLS] crée un rap ##pel pour le match de baseball de Joe ce soir à 19 h [SEP]	2	X O O O X O O B-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	1882
+Rappelle - moi de faire la vaisselle pour passer chez maman pour dîner dimanche .	[CLS] Rap ##pelle - moi de faire la vai ##ssel ##le pour passer chez mama ##n pour dî ##ner dimanche . [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO X X I-TODO I-TODO I-TODO I-TODO X O O X O O X	968
+Régler un rappel pour regarder Big Brother	[CLS] R ##ég ##ler un rap ##pel pour regard ##er Big Brother [SEP]	2	X O X X O O X O B-TODO X I-TODO I-TODO X	157
+Rappelez - moi de regarder la présentation sur la bande dessinée samedi	[CLS] Rap ##pele ##z - moi de regard ##er la présentation sur la bande dessinée same ##di [SEP]	2	X O X X O B-PERSON_REMINDED O B-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME X X	1002
+Pouvez - vous me rappeler de mettre à jour mes dossiers d' ici demain ?	[CLS] Po ##uve ##z - vous me rap ##peler de mettre à jour mes dossier ##s d ##' ici dem ##ain ? [SEP]	2	X O X X O O B-PERSON_REMINDED O X O B-TODO I-TODO I-TODO I-TODO I-TODO X B-DATE_TIME X I-DATE_TIME I-DATE_TIME X O X	994
+crée un rappel pour appeler Suzanne demain matin	[CLS] crée un rap ##pel pour appel ##er Suzanne dem ##ain matin [SEP]	2	X O O O X O B-TODO X I-TODO B-DATE_TIME X I-DATE_TIME X	2954
+Rappelez - moi de prendre les médicaments	[CLS] Rap ##pele ##z - moi de prendre les médica ##ments [SEP]	2	X O X X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO X X	884
+Rappelle - moi d’ envoyer mes devoirs à mon professeur avant 17h .	[CLS] Rap ##pelle - moi [UNK] en ##voy ##er mes de ##voir ##s à mon professeur avant 17 ##h . [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO X X I-TODO I-TODO X X I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME X O X	177
+Mets un rappel pour Plush Horse dimanche à 6h	[CLS] Mets un rap ##pel pour Plus ##h Horse dimanche à 6 ##h [SEP]	2	X O O O X O B-TODO X I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME X X	917
+rappelle - moi d' acheter les tickets de concert demain à 10 h	[CLS] rappelle - moi d ##' ach ##eter les tickets de concert dem ##ain à 10 h [SEP]	2	X O O B-PERSON_REMINDED O X B-TODO X I-TODO I-TODO I-TODO I-TODO B-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2377
+Rappelle - moi de jouer au football	[CLS] Rap ##pelle - moi de jouer au football [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO X	866
+Rappelle - moi d’ envoyer un e - mail à Andra à propos des uniformes .	[CLS] Rap ##pelle - moi [UNK] en ##voy ##er un e - mail à Andra à propos des uniforme ##s . [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO X X I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO X O X	186
+Rappel pour les vacances	[CLS] Rap ##pel pour les vacances [SEP]	2	X O X O O B-TODO X	2387
+Configure un rappel pour envoyer à Elsa une invitation à ma fête demain .	[CLS] Con ##figur ##e un rap ##pel pour en ##voy ##er à Elsa une invitation à ma fête dem ##ain . [SEP]	2	X O X X O O X O B-TODO X X I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME X O X	2429
+Rappelle - moi que papa arrive pour regarder le module d’ air conditionné .	[CLS] Rap ##pelle - moi que papa arrive pour regard ##er le module [UNK] air condition ##né . [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO I-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO X O X	950
+programme un rappel pour rincer ma couleur	[CLS] programme un rap ##pel pour rin ##cer ma couleur [SEP]	2	X O O O X O B-TODO X I-TODO I-TODO X	1809
+rappelle - moi de prendre le relais pour les dons de polices d' assurance vie cette semaine	[CLS] rappelle - moi de prendre le relais pour les don ##s de police ##s d ##' ass ##urance vie cette semaine [SEP]	2	X O O B-PERSON_REMINDED O B-TODO I-TODO I-TODO I-TODO I-TODO I-TODO X I-TODO I-TODO X I-TODO X I-TODO X I-TODO B-DATE_TIME I-DATE_TIME X	2949
+Programme un rappel pour Ashley pour qu' elle appelle sa maman demain soir .	[CLS] Programme un rap ##pel pour Ashley pour qu ##' elle appelle sa mama ##n dem ##ain soir . [SEP]	2	X O O O X O B-PERSON_REMINDED O O X O B-TODO I-TODO I-TODO X B-DATE_TIME X I-DATE_TIME O X	183
+J' ai besoin d' un rappel pour faire changer mon huile .	[CLS] J ##' ai besoin d ##' un rap ##pel pour faire changer mon huile . [SEP]	2	X B-PERSON_REMINDED X O O O X O O X O B-TODO I-TODO I-TODO I-TODO O X	986
+mets un rappel d' appeler un ami demain	[CLS] met ##s un rap ##pel d ##' appel ##er un ami dem ##ain [SEP]	2	X O X O O X O X B-TODO X I-TODO I-TODO B-DATE_TIME X X	2366
+Rappelez - moi de mettre le dîner au four à 17h	[CLS] Rap ##pele ##z - moi de mettre le dî ##ner au four à 17 ##h [SEP]	2	X O X X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO X I-TODO I-TODO B-DATE_TIME I-DATE_TIME X X	151
+Rappelle - moi de créer un événement Facebook pour la fête de la rentrée .	[CLS] Rap ##pelle - moi de créer un événement Facebook pour la fête de la rent ##rée . [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO X I-TODO X	1877
+Rappelle - moi de sortir la lessive dans 45 minutes	[CLS] Rap ##pelle - moi de sortir la less ##ive dans 45 minutes [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2923
+J' ai besoin d' un rappel demain à midi	[CLS] J ##' ai besoin d ##' un rap ##pel dem ##ain à midi [SEP]	2	X B-PERSON_REMINDED X O O O X O O X B-DATE_TIME X I-DATE_TIME I-DATE_TIME X	2910
+Pouvez - vous me rappeler de soumettre mon travail à 17 heures ?	[CLS] Po ##uve ##z - vous me rap ##peler de sou ##mettre mon travail à 17 heures ? [SEP]	2	X O X X O O B-PERSON_REMINDED O X O B-TODO X I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	891
+Rappelle - moi d' amener Anthony à l' entraînement de football lundi à 18 h 00	[CLS] Rap ##pelle - moi d ##' am ##ener Anthony à l ##' entraînement de football lu ##ndi à 18 h 00 [SEP]	2	X O X O O O X B-TODO X I-TODO I-TODO I-TODO X I-TODO I-TODO I-TODO B-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2953
+Rappelez - moi de venir chercher mon neveu à l' entraînement demain à 16 heures	[CLS] Rap ##pele ##z - moi de venir cherche ##r mon neveu à l ##' entraînement dem ##ain à 16 heures [SEP]	2	X O X X O B-PERSON_REMINDED O B-TODO I-TODO X I-TODO I-TODO I-TODO I-TODO X I-TODO B-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME X	952
+Rappelle - moi d' acheter des œufs ce week - end .	[CLS] Rap ##pelle - moi d ##' ach ##eter des œ ##ufs ce week - end . [SEP]	2	X O X O B-PERSON_REMINDED O X B-TODO X I-TODO I-TODO X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1817
+programme une alarme pour samedi	[CLS] programme une ala ##rme pour same ##di [SEP]	2	X O O O X B-DATE_TIME I-DATE_TIME X X	159
+Rappelez - moi mon rendez - vous chez le médecin plus tard dans la semaine .	[CLS] Rap ##pele ##z - moi mon rende ##z - vous chez le médecin plus tard dans la semaine . [SEP]	2	X O X X O B-PERSON_REMINDED O B-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	860
+Prévoyez un rappel pour le chat Zoom à 9 heures .	[CLS] Pr ##é ##voy ##ez un rap ##pel pour le chat Zoom à 9 heures . [SEP]	2	X O X X X O O X O O B-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	979
+Crée un rappel pour l’ anniversaire de maman le 13 août .	[CLS] C ##rée un rap ##pel pour [UNK] anniversaire de mama ##n le 13 août . [SEP]	2	X O X O O X O O B-TODO I-TODO I-TODO X B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1865
+Rappelle à Edd que je l' aime	[CLS] Rap ##pelle à Ed ##d que je l ##' aime [SEP]	2	X O X O B-PERSON_REMINDED X O B-TODO I-TODO X I-TODO X	1846
+rappelle - moi de me procurer des ordonnances demain	[CLS] rappelle - moi de me pro ##cure ##r des ordo ##nnan ##ces dem ##ain [SEP]	2	X O O B-PERSON_REMINDED O B-TODO I-TODO X X I-TODO I-TODO X X B-DATE_TIME X X	162
+fais - moi penser à passer la serpillère avant le dîner	[CLS] fai ##s - moi penser à passer la ser ##pil ##l ##ère avant le dî ##ner [SEP]	2	X O X O B-PERSON_REMINDED O O B-TODO I-TODO I-TODO X X X I-TODO I-TODO I-TODO X X	1853
+Crée un rappel pour le rendez - vous chez Jaguar à 16h45	[CLS] C ##rée un rap ##pel pour le rende ##z - vous chez Jaguar à 16 ##h ##45 [SEP]	2	X O X O O X O O B-TODO X I-TODO I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME X X X	995
+Rappelez - moi à 6 heures ce soir de payer ma facture d' eau	[CLS] Rap ##pele ##z - moi à 6 heures ce soir de payer ma fact ##ure d ##' eau [SEP]	2	X O X X O B-PERSON_REMINDED B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O B-TODO I-TODO I-TODO X I-TODO X I-TODO X	861
+rappelez - moi d' appeler Lucy à 18 heures	[CLS] rap ##pele ##z - moi d ##' appel ##er Lucy à 18 heures [SEP]	2	X O X X O B-PERSON_REMINDED O X B-TODO X I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME X	841
+Rappelle - moi d' envoyer des e - mails à mes camarades de classe au sujet de notre prochaine réunion de classe ce week - end .	[CLS] Rap ##pelle - moi d ##' en ##voy ##er des e - mail ##s à mes cam ##ara ##des de classe au sujet de notre pro ##cha ##ine réunion de classe ce week - end . [SEP]	2	X O X O B-PERSON_REMINDED O X B-TODO X X I-TODO I-TODO I-TODO I-TODO X I-TODO I-TODO I-TODO X X I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO X X I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1894
+rappelle - moi de parcourir ma boite courriel ce week - end	[CLS] rappelle - moi de parco ##uri ##r ma bo ##ite cour ##rie ##l ce week - end [SEP]	2	X O O B-PERSON_REMINDED O B-TODO X X I-TODO I-TODO X I-TODO X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	180
+rappelle - moi de répondre à l' e - mail de Jeffrey à 17 h	[CLS] rappelle - moi de répondre à l ##' e - mail de Jeffrey à 17 h [SEP]	2	X O O B-PERSON_REMINDED O B-TODO I-TODO I-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME X	1884
+programme un rappel pour 17 heures pour récupérer le dîner	[CLS] programme un rap ##pel pour 17 heures pour r ##éc ##up ##érer le dî ##ner [SEP]	2	X O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME O B-TODO X X X I-TODO I-TODO X X	163
+Le rappel de nourrir le chat doit se déclencher à 18h ce soir	[CLS] Le rap ##pel de nou ##rrir le chat doit se dé ##cle ##nche ##r à 18 ##h ce soir [SEP]	2	X O O X O B-TODO X I-TODO I-TODO O O O X X X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X	108
+Mets un rappel pour demain	[CLS] Mets un rap ##pel pour dem ##ain [SEP]	2	X O O O X B-DATE_TIME I-DATE_TIME X X	1811
+rappelle - moi d' acheter des billets pour le match des Yankees vendredi	[CLS] rappelle - moi d ##' ach ##eter des bill ##ets pour le match des Yankees vendre ##di [SEP]	2	X O O B-PERSON_REMINDED O X B-TODO X I-TODO I-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME X X	1841
+Rappelle - moi d' acheter des fleurs pour ma mère	[CLS] Rap ##pelle - moi d ##' ach ##eter des fleurs pour ma mère [SEP]	2	X O X O B-PERSON_REMINDED O X B-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO X	1819
+Rappelle - moi de retrouver Chris pour le déjeuner mardi à 11h30	[CLS] Rap ##pelle - moi de retrouver Chris pour le dé ##je ##une ##r mar ##di à 11 ##h ##30 [SEP]	2	X O X O B-PERSON_REMINDED O B-TODO I-TODO I-TODO I-TODO I-TODO X X X B-DATE_TIME X I-DATE_TIME I-DATE_TIME X X X	958
+Mets un réveil pour la réunion de scouts de mes fils tous les lundis	[CLS] Mets un r ##é ##vei ##l pour la réunion de s ##cout ##s de mes fils tous les lu ##ndi ##s [SEP]	3	X O O O X X X O B-ALARM_NAME I-ALARM_NAME I-ALARM_NAME I-ALARM_NAME X X I-ALARM_NAME I-ALARM_NAME I-ALARM_NAME B-PERIOD I-PERIOD I-PERIOD X X X	2683
+S' il - te - plaît , règle l' alarme à 4 h aujourd'hui	[CLS] S ##' il - te - pla ##ît , règle l ##' ala ##rme à 4 h aujourd ##' ##hu ##i [SEP]	3	X O X O O O O O X O O O X O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X X X	1721
+Programme une alarme pour vendredi à 6h	[CLS] Programme une ala ##rme pour vendre ##di à 6 ##h [SEP]	3	X O O O X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X X	3159
+Crée une alarme appelée école pour 15h demain	[CLS] C ##rée une ala ##rme appelée école pour 15 ##h dem ##ain [SEP]	3	X O X O O X O B-ALARM_NAME B-DATE_TIME I-DATE_TIME X I-DATE_TIME X X	664
+Crée une alarme d' exercice demain à midi	[CLS] C ##rée une ala ##rme d ##' exercice dem ##ain à midi [SEP]	3	X O X O O X O X B-ALARM_NAME B-DATE_TIME X I-DATE_TIME I-DATE_TIME X	2847
+Configure une alarme appelée « livraison » demain à midi	[CLS] Con ##figur ##e une ala ##rme appelée « liv ##rais ##on » dem ##ain à midi [SEP]	3	X O X X O O X O O B-ALARM_NAME X X O B-DATE_TIME X I-DATE_TIME I-DATE_TIME X	67
+Pour les 2 prochaines semaines , crée une alarme pour 7h tous les matins	[CLS] Pour les 2 pro ##cha ##ines semaines , crée une ala ##rme pour 7 ##h tous les matin ##s [SEP]	3	X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME O O O O X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME X X	83
+Règle trois alarmes pour aujourd'hui , une pour 15h , une pour 17h et une pour 17h .	[CLS] R ##è ##gle trois ala ##rmes pour aujourd ##' ##hu ##i , une pour 15 ##h , une pour 17 ##h et une pour 17 ##h . [SEP]	3	X O X X B-AMOUNT O X B-DATE_TIME I-DATE_TIME X X X O B-AMOUNT B-DATE_TIME I-DATE_TIME X O B-AMOUNT B-DATE_TIME I-DATE_TIME X O B-AMOUNT B-DATE_TIME I-DATE_TIME X O X	2236
+Peux - tu définir une alarme pour le mardi 14 mai	[CLS] Peu ##x - tu dé ##fini ##r une ala ##rme pour le mar ##di 14 mai [SEP]	3	X O X O O O X X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X	2271
+je veux que tu me mettes une alarme à 8h	[CLS] je veu ##x que tu me mette ##s une ala ##rme à 8 ##h [SEP]	3	X O O X O O O O X O O X B-DATE_TIME I-DATE_TIME X X	604
+Répète mon alarme tous les lundis à 10 h 30	[CLS] R ##ép ##ète mon ala ##rme tous les lu ##ndi ##s à 10 h 30 [SEP]	3	X O X X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2846
+J' ai besoin que mon réveil soit réglé sur 4 h du matin	[CLS] J ##' ai besoin que mon r ##é ##vei ##l soit r ##ég ##lé sur 4 h du matin [SEP]	3	X O X O O O O O X X X O O X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2604
+Mettez le réveil à 22 heures ce soir .	[CLS] Met ##tez le r ##é ##vei ##l à 22 heures ce soir . [SEP]	3	X O X O O X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1536
+Crée des alarmes pour jeudi et vendredi à 17h	[CLS] C ##rée des ala ##rmes pour jeu ##di et vendre ##di à 17 ##h [SEP]	3	X O X O O X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X X	2812
+Crée une alarme pour le 18 juillet à 5 h 30	[CLS] C ##rée une ala ##rme pour le 18 juillet à 5 h 30 [SEP]	3	X O X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2810
+programme l' alarme pour entrainement demain à 21 heures	[CLS] programme l ##' ala ##rme pour entra ##ine ##ment dem ##ain à 21 heures [SEP]	3	X O O X O X O B-ALARM_NAME X X B-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME X	295
+Règle une alarme toutes les 5 minutes pendant 12 minutes .	[CLS] R ##è ##gle une ala ##rme toutes les 5 minutes pendant 12 minutes . [SEP]	3	X O X X O O X B-PERIOD I-PERIOD I-PERIOD I-PERIOD B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	2650
+Réglez l' alarme pour le temps de cuisson à 19 heures	[CLS] R ##ég ##lez l ##' ala ##rme pour le temps de cui ##sson à 19 heures [SEP]	3	X O X X O X B-ALARM_NAME X I-ALARM_NAME I-ALARM_NAME I-ALARM_NAME I-ALARM_NAME I-ALARM_NAME X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	1395
+mets une nouvelle alarme appelée rendez vous pour demain	[CLS] met ##s une nouvelle ala ##rme appelée rende ##z vous pour dem ##ain [SEP]	3	X O X O O O X O B-ALARM_NAME X I-ALARM_NAME B-DATE_TIME I-DATE_TIME X X	575
+Réglez une alarme pour les jeudis à 9h	[CLS] R ##ég ##lez une ala ##rme pour les jeu ##dis à 9 ##h [SEP]	3	X O X X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X X	660
+Programmez un réveil le lundi à 10h chaque semaine ce mois	[CLS] Programme ##z un r ##é ##vei ##l le lu ##ndi à 10 ##h chaque semaine ce mois [SEP]	3	X O X O O X X X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME B-DATE_TIME I-DATE_TIME X	612
+veuillez me réveiller à 6 heures du matin	[CLS] veu ##ille ##z me r ##é ##vei ##ller à 6 heures du matin [SEP]	3	X O X X O O X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	651
+Programme une alarme qui s' activera toutes les 2 heures cet après - midi	[CLS] Programme une ala ##rme qui s ##' active ##ra toutes les 2 heures cet après - midi [SEP]	3	X O O O X O O X O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	304
+Règle une alarme dans dix s' il te plaît	[CLS] R ##è ##gle une ala ##rme dans dix s ##' il te pla ##ît [SEP]	3	X O X X O O X B-DATE_TIME I-DATE_TIME O X O O O X X	3116
+Règle le réveil pour les deux prochaines semaines à 8 h	[CLS] R ##è ##gle le r ##é ##vei ##l pour les deux pro ##cha ##ines semaines à 8 h [SEP]	3	X O X X O B-ALARM_NAME X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME B-DATE_TIME I-DATE_TIME I-DATE_TIME X	1732
+S’ il te plaît règle un réveil pour neuf heures du soir	[CLS] [UNK] il te pla ##ît règle un r ##é ##vei ##l pour neuf heures du soir [SEP]	3	X O O O O X O O O X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	3118
+Créez une alarme pour 19h	[CLS] C ##rée ##z une ala ##rme pour 19 ##h [SEP]	3	X O X X O O X B-DATE_TIME I-DATE_TIME X X	570
+Règle une alarme pour le jour de Noël le 25 décembre à 12h00	[CLS] R ##è ##gle une ala ##rme pour le jour de Noël le 25 décembre à 12 ##h ##00 [SEP]	3	X O X X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X X	2845
+Réglez une alerte pour 05h60	[CLS] R ##ég ##lez une ale ##rte pour 05 ##h ##60 [SEP]	3	X O X X O O X B-DATE_TIME I-DATE_TIME X X X	597
+Programme un nouveau réveil pour lundi à 12 heures	[CLS] Programme un nouveau r ##é ##vei ##l pour lu ##ndi à 12 heures [SEP]	3	X O O O O X X X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME X	1730
+Pourriez - vous me mettre un réveil pour le coucher pour 22 heures ce soir ?	[CLS] Pour ##rie ##z - vous me mettre un r ##é ##vei ##l pour le couche ##r pour 22 heures ce soir ? [SEP]	3	X O X X O O B-ALARM_NAME O O O X X X O O B-ALARM_NAME X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	578
+Programme une alarme pour le 5 juin à minuit	[CLS] Programme une ala ##rme pour le 5 juin à min ##uit [SEP]	3	X O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X	1724
+activez l' alarme pendant 10 minutes avant 9 heures du matin	[CLS] active ##z l ##' ala ##rme pendant 10 minutes avant 9 heures du matin [SEP]	3	X O X O X O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	470
+J' ai besoin d' un réveil pour 6 heures demain matin	[CLS] J ##' ai besoin d ##' un r ##é ##vei ##l pour 6 heures dem ##ain matin [SEP]	3	X O X O O O X O B-ALARM_NAME X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X I-DATE_TIME X	663
+créez une alerte pour le 9 mai à 12h	[CLS] crée ##z une ale ##rte pour le 9 mai à 12 ##h [SEP]	3	X O X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X	573
+crée deux alarmes d' appels pour demain à 15 heures et 17 heures	[CLS] crée deux ala ##rmes d ##' appel ##s pour dem ##ain à 15 heures et 17 heures [SEP]	3	X O B-AMOUNT O X O X O X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	82
+règle une alarme pour 16 h aujourd'hui	[CLS] règle une ala ##rme pour 16 h aujourd ##' ##hu ##i [SEP]	3	X O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X X X	3174
+Est - ce que je peux avoir une alarme à 8h00 ?	[CLS] Est - ce que je peu ##x avoir une ala ##rme à 8 ##h ##00 ? [SEP]	3	X O O O O O O X O O O X B-DATE_TIME I-DATE_TIME X X O X	2821
+Définissez une alarme différente	[CLS] D ##é ##fini ##sse ##z une ala ##rme différent ##e [SEP]	3	X O X X X X O O X O X X	586
+Réglez le réveil pour 6 heures demain matin .	[CLS] R ##ég ##lez le r ##é ##vei ##l pour 6 heures dem ##ain matin . [SEP]	3	X O X X O O X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X I-DATE_TIME O X	1354
+Mets une alarme tous les mardis à 12 h .	[CLS] Mets une ala ##rme tous les mar ##dis à 12 h . [SEP]	3	X O O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2072
+J' ai besoin d' une alarme à 6 h s' il te plaît	[CLS] J ##' ai besoin d ##' une ala ##rme à 6 h s ##' il te pla ##ît [SEP]	3	X O X O O O X O O X B-DATE_TIME I-DATE_TIME I-DATE_TIME O X O O O X X	2232
+peux - tu écrire bonjour à Mike sans cesse jusqu'à ce qu' il réponde	[CLS] peu ##x - tu écrire bon ##jou ##r à Mike sans cesse jusqu ##' ##à ce qu ##' il répond ##e [SEP]	4	X O X O O O B-CONTENT_EXACT X X O B-RECIPIENT O O O X X O O X O O X X	2359
+Merci de faire un message vidéo pour Liz	[CLS] Mer ##ci de faire un message vidéo pour Liz [SEP]	4	X O X O O O O B-TYPE_CONTENT O B-RECIPIENT X	2200
+peux - tu envoyer un message vidéo à George	[CLS] peu ##x - tu en ##voy ##er un message vidéo à George [SEP]	4	X O X O O O X X O O B-TYPE_CONTENT O B-RECIPIENT X	42
+Demande à George à quelle heure le livreur de pizza a dit qu' il arriverait .	[CLS] Dem ##ande à George à quelle heure le livre ##ur de pi ##zza a dit qu ##' il arrive ##rait . [SEP]	4	X O X O B-RECIPIENT B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X O X	2363
+Envoie un texto à Zach et dis - lui que la voiture est en route pour passer le chercher lui et sa petite amie chez Ben .	[CLS] En ##voie un texto à Zach et dis - lui que la voiture est en route pour passer le cherche ##r lui et sa petite amie chez Ben . [SEP]	4	X O X O O O B-RECIPIENT O O O O O B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT O X	804
+Dites à Sarah que nous ne serons pas là	[CLS] Dit ##es à Sarah que nous ne ser ##ons pas là [SEP]	4	X O X O B-RECIPIENT O B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X	807
+Envoie un message à Flo et dis - lui que lundi fera l' affaire pour notre réunion de l' après - midi .	[CLS] En ##voie un message à Fl ##o et dis - lui que lu ##ndi fera l ##' affaire pour notre réunion de l ##' après - midi . [SEP]	4	X O X O O O B-RECIPIENT X O O O O O B-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT O X	2353
+Préviens Mary que le concert de Madonna sera à El Paso en septembre	[CLS] Pr ##évi ##ens Mary que le concert de Madonna sera à El Paso en septembre [SEP]	4	X O X X B-RECIPIENT O B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X	814
+pourrais - tu envoyer un message vidéo à Jonathan Brock Li	[CLS] pour ##rais - tu en ##voy ##er un message vidéo à Jonathan Brock Li [SEP]	4	X O X O O O X X O O B-TYPE_CONTENT O B-RECIPIENT I-RECIPIENT I-RECIPIENT X	1658
+Poste à Sabrina : félicitations pour le bébé	[CLS] Post ##e à Sabrina : fél ##ici ##tations pour le bé ##bé [SEP]	4	X O X O B-RECIPIENT O B-CONTENT_EXACT X X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X X	834
+Dis à ma maman qu' après avoir tourné à droite au panneau stop elle doit tourner à gauche au feu pour arriver au portail de ma maison .	[CLS] Dis à ma mama ##n qu ##' après avoir tourné à droite au pan ##neau stop elle doit tourne ##r à gauche au feu pour arrive ##r au portail de ma maison . [SEP]	4	X O O B-RECIPIENT I-RECIPIENT X O X B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT O X	2900
+réponds à Camilla avec une vidéo	[CLS] répond ##s à Camilla avec une vidéo [SEP]	4	X O X O B-RECIPIENT O O B-TYPE_CONTENT X	506
+Merci d’ envoyer la ligne de travail	[CLS] Mer ##ci [UNK] en ##voy ##er la ligne de travail [SEP]	4	X O X O O X X O O O B-GROUP X	0
+Commencez un nouveau message pour Phil	[CLS] Comme ##nce ##z un nouveau message pour Phil [SEP]	4	X O X X O O O O B-RECIPIENT X	721
+Envoyer un message à ma fille .	[CLS] En ##voy ##er un message à ma fille . [SEP]	4	X O X X O O O B-RECIPIENT I-RECIPIENT O X	825
+Envoie cette vidéo au groupe de l’ église , s’ il te plaît	[CLS] En ##voie cette vidéo au groupe de [UNK] église , [UNK] il te pla ##ît [SEP]	4	X O X O B-TYPE_CONTENT O O O O B-GROUP O O O O O X X	4
+Envoyez un message à Austin pour voir s’ il veut aider à planifier une fête d’ anniversaire pour Steve le mois prochain .	[CLS] En ##voy ##ez un message à Austin pour voir [UNK] il veut aider à plan ##ifier une fête [UNK] anniversaire pour Steve le mois pro ##cha ##in . [SEP]	4	X O X X O O O B-RECIPIENT O O O B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X X O X	817
+peux - tu envoyer le texto de Messenger à Bethany	[CLS] peu ##x - tu en ##voy ##er le texto de Messenger à Beth ##any [SEP]	4	X O X O O O X X O O O B-NAME_APP O B-CONTACT X X	1596
+Envoyez un message à ma mère pour lui dire que je t' aime .	[CLS] En ##voy ##ez un message à ma mère pour lui dire que je t ##' aime . [SEP]	4	X O X X O O O B-RECIPIENT I-RECIPIENT O O O O B-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT O X	833
+Appelle la toiletteuse pour savoir quand elle est disponible pour le soin des griffes du chien	[CLS] App ##elle la toile ##tte ##use pour savoir quand elle est disponible pour le soi ##n des gr ##iff ##es du chien [SEP]	4	X O X B-RECIPIENT I-RECIPIENT X X O O B-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X X I-CONTENT_EXACT I-CONTENT_EXACT X	816
+peux tu l’ envoyer à Judith sur WhatsApp	[CLS] peu ##x tu [UNK] en ##voy ##er à Judith sur What ##s ##A ##pp [SEP]	4	X O X O O O X X O B-RECIPIENT O B-NAME_APP X X X X	371
+Envoie un message à John pour lui faire savoir que l’ horaire du film a été modifié à 19h30 ce soir et que je le verrai là - bas .	[CLS] En ##voie un message à John pour lui faire savoir que [UNK] hora ##ire du film a été modi ##fié à 19 ##h ##30 ce soir et que je le ver ##rai là - bas . [SEP]	4	X O X O O O B-RECIPIENT O O O O O B-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT O X	137
+Envoyez un message à Sophie et dites - lui que je l' aime	[CLS] En ##voy ##ez un message à Sophie et dite ##s - lui que je l ##' aime [SEP]	4	X O X X O O O B-RECIPIENT O O X O O O B-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT X	831
+envoie le SMS par Messenger	[CLS] envoie le SMS par Messenger [SEP]	4	X O O O O B-NAME_APP X	2127
+Enregistrez un message vidéo pour mon fils	[CLS] En ##reg ##ist ##rez un message vidéo pour mon fils [SEP]	4	X O X X X O O B-TYPE_CONTENT O B-RECIPIENT I-RECIPIENT X	458
+Envoie un texto à Joe pour lui dire que je serai là dans une heure	[CLS] En ##voie un texto à Joe pour lui dire que je sera ##i là dans une heure [SEP]	4	X O X O O O B-RECIPIENT O O O O B-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X	2899
+Puis - je enregistrer un message vidéo pour un enfant	[CLS] Puis - je enregistre ##r un message vidéo pour un enfant [SEP]	4	X O O O O X O O B-TYPE_CONTENT O O B-RECIPIENT X	459
+je voudrais envoyer cette vidéo à Harvey , Raul et Jerry Ward	[CLS] je vo ##udra ##is en ##voy ##er cette vidéo à Harvey , Raul et Jerry Ward [SEP]	4	X O O X X O X X O B-TYPE_CONTENT O B-RECIPIENT O B-RECIPIENT O B-RECIPIENT I-RECIPIENT X	1591
+Envoie un message à maman que je serai en retard de 15 minutes	[CLS] En ##voie un message à mama ##n que je sera ##i en ret ##ard de 15 minutes [SEP]	4	X O X O O O B-RECIPIENT X O B-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT X I-CONTENT_EXACT I-CONTENT_EXACT I-CONTENT_EXACT X	826
+Je voudrais que tu , je voudrais envoyer un message vidéo à Len sur Messagerie	[CLS] Je vo ##udra ##is que tu , je vo ##udra ##is en ##voy ##er un message vidéo à Len sur Message ##rie [SEP]	4	X O O X X O O O O O X X O X X O O B-TYPE_CONTENT O B-RECIPIENT O B-NAME_APP X X	8
+Veuillez enregistrer un message vidéo pour John et Jack	[CLS] Ve ##uille ##z enregistre ##r un message vidéo pour John et Jack [SEP]	4	X O X X O X O O B-TYPE_CONTENT O B-RECIPIENT O B-RECIPIENT X	344
+Je voudrais envoyer à Izzy ce message Messenger	[CLS] Je vo ##udra ##is en ##voy ##er à Iz ##zy ce message Messenger [SEP]	4	X O O X X O X X O B-CONTACT X O O B-NAME_APP X	364
+envoie un message vidéo à Albert	[CLS] envoie un message vidéo à Albert [SEP]	4	X O O O B-TYPE_CONTENT O B-RECIPIENT X	43
+réponds au fil de discussion sur les gâteaux par SMS	[CLS] répond ##s au fil de discussion sur les g ##ât ##eaux par SMS [SEP]	4	X O X O O O O O O B-GROUP X X O O X	2729
+appelle Melody en vidéo .	[CLS] appelle Melody en vidéo . [SEP]	4	X O B-TYPE_CONTENT O B-RECIPIENT O X	2195
+Commencez l' enregistrement pour un message vidéo à Teofila Worden	[CLS] Comme ##nce ##z l ##' enregistrement pour un message vidéo à Te ##of ##ila Word ##en [SEP]	4	X O X X O X O O O O B-TYPE_CONTENT O B-RECIPIENT X X I-RECIPIENT X X	460
+Ecouter le nouvel album de Selena Gomez	[CLS] Eco ##uter le nouvel album de Selena Gomez [SEP]	5	X O X O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X	259
+Joue la chanson She 's Thunderstorms	[CLS] Jo ##ue la chanson She ' ##s Thunder ##stor ##ms [SEP]	5	X O X O B-MUSIC_TYPE B-MUSIC_TRACK_TITLE I-MUSIC_TRACK_TITLE X I-MUSIC_TRACK_TITLE X X X	492
+Trouve - moi des morceaux hard - core	[CLS] T ##rou ##ve - moi des morceaux hard - core [SEP]	5	X O X X O O O B-MUSIC_TYPE B-MUSIC_GENRE I-MUSIC_GENRE I-MUSIC_GENRE X	3136
+joue le nouvel album de Jay Z	[CLS] joue le nouvel album de Jay Z [SEP]	5	X O O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X	1174
+Je veux écouter de la pop coréenne	[CLS] Je veu ##x é ##cout ##er de la pop cor ##éen ##ne [SEP]	5	X O O X O X X O O B-MUSIC_GENRE I-MUSIC_GENRE X X X	2610
+Mets la dernière chanson de Lil Wayne	[CLS] Mets la dernière chanson de Lil Wayne [SEP]	5	X O O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X	1258
+Mets de la musique rock	[CLS] Mets de la musique rock [SEP]	5	X O O O B-MUSIC_TYPE B-MUSIC_GENRE X	270
+Joue la nouvelle chanson de Noah Cyrus	[CLS] Jo ##ue la nouvelle chanson de Noah Cyrus [SEP]	5	X O X O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X	3142
+Jouez l' album Baby On Baby de OneRepublic .	[CLS] Jo ##ue ##z l ##' album Baby On Baby de One ##R ##ep ##ub ##lic . [SEP]	5	X O X X O X B-MUSIC_TYPE B-MUSIC_ALBUM_TITLE I-MUSIC_ALBUM_TITLE I-MUSIC_ALBUM_TITLE O B-MUSIC_ARTIST_NAME X X X X O X	695
+Jouez moi un mix de David Bowie	[CLS] Jo ##ue ##z moi un mix de David Bowie [SEP]	5	X O X X O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X	1513
+allez à iheartradio et jouer à WQXR	[CLS] alle ##z à ih ##ear ##tra ##dio et jouer à W ##Q ##X ##R [SEP]	5	X O X O B-MUSIC_PROVIDER_NAME X X X O O O B-MUSIC_RADIO_ID X X X X	619
+Meilleure chanson de Carlos Vives .	[CLS] Meilleure chanson de Carlos Vive ##s . [SEP]	5	X O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X O X	1323
+Je veux écouter Ride de Twenty One Pilots	[CLS] Je veu ##x é ##cout ##er Ride de Twenty One Pilot ##s [SEP]	5	X O O X O X X B-MUSIC_TRACK_TITLE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X X	2705
+Écoute Maroon 5 sur Pandora	[CLS] É ##cout ##e Mar ##oon 5 sur Pandora [SEP]	5	X O X X B-MUSIC_ARTIST_NAME X I-MUSIC_ARTIST_NAME O B-MUSIC_PROVIDER_NAME X	1312
+Lis Dirty Laundry de the Eagles	[CLS] Li ##s Dirty Lau ##ndr ##y de the Eagles [SEP]	5	X O X B-MUSIC_TRACK_TITLE I-MUSIC_TRACK_TITLE X X O O B-MUSIC_ARTIST_NAME X	3074
+peux - tu jouer le dernier single de Nicki Minaj	[CLS] peu ##x - tu jouer le dernier single de Nick ##i Mina ##j [SEP]	5	X O X O O O O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME X I-MUSIC_ARTIST_NAME X X	2061
+Je veux entendre de la musique rap .	[CLS] Je veu ##x entendre de la musique rap . [SEP]	5	X O O X O O O B-MUSIC_TYPE B-MUSIC_GENRE O X	1507
+Je veux écouter Calvin Harris	[CLS] Je veu ##x é ##cout ##er Calvin Harris [SEP]	5	X O O X O X X B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X	696
+S’ il de plaît mets de la musique d’ entraînement	[CLS] [UNK] il de pla ##ît met ##s de la musique [UNK] entraînement [SEP]	5	X O O O O X O X O O B-MUSIC_TYPE O B-MUSIC_GENRE X	3083
+Jouez - moi un peu de Miley Cyrus sur Spotify	[CLS] Jo ##ue ##z - moi un peu de Miley Cyrus sur Spot ##ify [SEP]	5	X O X X O O O O O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME O B-MUSIC_PROVIDER_NAME X X	699
+Trouve - moi de la musique pop .	[CLS] T ##rou ##ve - moi de la musique pop . [SEP]	5	X O X X O O O O B-MUSIC_TYPE B-MUSIC_GENRE O X	2076
+Peux - tu jouer Break My Heart de Hey Violet sur Pandora ?	[CLS] Peu ##x - tu jouer Break My Heart de Hey Violet sur Pandora ? [SEP]	5	X O X O O O B-MUSIC_TRACK_TITLE I-MUSIC_TRACK_TITLE I-MUSIC_TRACK_TITLE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME O B-MUSIC_PROVIDER_NAME O X	2642
+Mets ma station Jacques	[CLS] Mets ma station Jacques [SEP]	5	X O O B-MUSIC_TYPE B-MUSIC_PLAYLIST_TITLE X	3150
+Je veux écouter du snoop dogg sur Pandora	[CLS] Je veu ##x é ##cout ##er du s ##no ##op dog ##g sur Pandora [SEP]	5	X O O X O X X O B-MUSIC_ARTIST_NAME X X I-MUSIC_ARTIST_NAME X O B-MUSIC_PROVIDER_NAME X	3139
+Trouve des chansons de Richard Cheese uniquement .	[CLS] T ##rou ##ve des chansons de Richard Che ##ese uniquement . [SEP]	5	X O X X O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME X O O X	3082
+Je veux écouter le dernier album de Maroon 5 .	[CLS] Je veu ##x é ##cout ##er le dernier album de Mar ##oon 5 . [SEP]	5	X O O X O X X O O B-MUSIC_TYPE O B-MUSIC_ARTIST_NAME X I-MUSIC_ARTIST_NAME O X	3130
+Joue WKSC FM sur la iheartradio	[CLS] Jo ##ue WK ##SC FM sur la ih ##ear ##tra ##dio [SEP]	5	X O X B-MUSIC_RADIO_ID X I-MUSIC_RADIO_ID O O B-MUSIC_PROVIDER_NAME X X X X	620
+Jouez une chanson country	[CLS] Jo ##ue ##z une chanson country [SEP]	5	X O X X O B-MUSIC_TYPE B-MUSIC_GENRE X	1273
+Ouvre Spotify et joue ma liste de chansons country	[CLS] Ou ##vre Spot ##ify et joue ma liste de chansons country [SEP]	5	X O X B-MUSIC_PROVIDER_NAME X O O O B-MUSIC_TYPE O B-MUSIC_PLAYLIST_TITLE I-MUSIC_PLAYLIST_TITLE X	1282
+Lance Paul Kelly sur Google Play Music	[CLS] Lance Paul Kelly sur Google Play Music [SEP]	5	X O B-MUSIC_ARTIST_NAME I-MUSIC_ARTIST_NAME O B-MUSIC_PROVIDER_NAME I-MUSIC_PROVIDER_NAME I-MUSIC_PROVIDER_NAME X	2756
+qu' est - ce qu' il se passe à seattle ce soir	[CLS] qu ##' est - ce qu ##' il se passe à seat ##tle ce soir [SEP]	6	X O X O O O O X O O O O B-LOCATION X B-DATE_TIME I-DATE_TIME X	198
+spectacles de Las Vegas	[CLS] spectacles de Las Vegas [SEP]	6	X B-CATEGORY_EVENT O B-LOCATION I-LOCATION X	1068
+montre - moi des programmes intéressants pour demain soir	[CLS] montre - moi des programmes int ##ére ##ssants pour dem ##ain soir [SEP]	6	X O O O O B-CATEGORY_EVENT O X X B-DATE_TIME I-DATE_TIME X I-DATE_TIME X	2464
+quels événements sportifs ont lieu à Newport aujourd'hui	[CLS] quel ##s événements sportif ##s ont lieu à Newport aujourd ##' ##hu ##i [SEP]	6	X O X O B-CATEGORY_EVENT X O O O B-LOCATION B-DATE_TIME X X X X	1902
+Quels sont les matchs de tennis en cours	[CLS] Que ##ls sont les matchs de tennis en cours [SEP]	6	X O X O O B-CATEGORY_EVENT I-CATEGORY_EVENT I-CATEGORY_EVENT O O X	1756
+Des spectacles artistiques ce mois - ci ?	[CLS] Des spectacles artistique ##s ce mois - ci ? [SEP]	6	X O B-CATEGORY_EVENT I-CATEGORY_EVENT X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1058
+Festivals de musique ce mois dans la baie de Tampa	[CLS] Festivals de musique ce mois dans la baie de Tampa [SEP]	6	X B-CATEGORY_EVENT I-CATEGORY_EVENT I-CATEGORY_EVENT B-DATE_TIME I-DATE_TIME O B-LOCATION I-LOCATION I-LOCATION I-LOCATION X	2462
+Recommandations pour les matchs de rugby à Oakland	[CLS] Rec ##om ##mand ##ations pour les matchs de rugby à Oakland [SEP]	6	X O X X X O O B-CATEGORY_EVENT I-CATEGORY_EVENT I-CATEGORY_EVENT O B-LOCATION X	490
+Trouve - moi des concerts à Melbourne demain	[CLS] T ##rou ##ve - moi des concerts à Melbourne dem ##ain [SEP]	6	X O X X O O O B-CATEGORY_EVENT O B-LOCATION B-DATE_TIME X X	2981
+matchs de football à Dallas demain soir	[CLS] matchs de football à Dallas dem ##ain soir [SEP]	6	X B-CATEGORY_EVENT I-CATEGORY_EVENT I-CATEGORY_EVENT O B-LOCATION B-DATE_TIME X I-DATE_TIME X	712
+Que puis - je faire aujourd'hui	[CLS] Que puis - je faire aujourd ##' ##hu ##i [SEP]	6	X O O O O O B-DATE_TIME X X X X	1912
+J' ai besoin de choses amusantes pendant mon séjour à Chicago pour le travail la semaine prochaine	[CLS] J ##' ai besoin de choses am ##usan ##tes pendant mon séjour à Chicago pour le travail la semaine pro ##cha ##ine [SEP]	6	X O X O O O O O X X O O O O B-LOCATION O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME X X X	1063
+Montre - moi d’ autres pièces	[CLS] Mont ##re - moi [UNK] autres pièces [SEP]	6	X O X O O O O B-CATEGORY_EVENT X	36
+Est - ce qu' il se passe quelque chose d' intéressant à Brooklyn demain ?	[CLS] Est - ce qu ##' il se passe quelque chose d ##' int ##ére ##ssant à Brooklyn dem ##ain ? [SEP]	6	X O O O O X O O O O O O X O X X O B-LOCATION B-DATE_TIME X O X	2983
+évènements théâtres à Mesa cette semaine	[CLS] év ##ènement ##s théâtre ##s à Mesa cette semaine [SEP]	6	X O X X B-CATEGORY_EVENT X O B-LOCATION B-DATE_TIME I-DATE_TIME X	197
+Spectacles comiques à Atlanta ce soir	[CLS] Sp ##ecta ##cles com ##iques à Atlanta ce soir [SEP]	6	X B-CATEGORY_EVENT X X I-CATEGORY_EVENT X O B-LOCATION B-DATE_TIME I-DATE_TIME X	1062
+Y a - t - il des matchs de crosse organisés en janvier	[CLS] Y a - t - il des matchs de cross ##e organisé ##s en janvier [SEP]	6	X O O O O O O O B-CATEGORY_EVENT I-CATEGORY_EVENT I-CATEGORY_EVENT X O X B-DATE_TIME I-DATE_TIME X	2861
+Ce qui se passe à Atlanta vendredi	[CLS] Ce qui se passe à Atlanta vendre ##di [SEP]	6	X O O O O O B-LOCATION B-DATE_TIME X X	1066
+tous les événements ce mois - ci	[CLS] tous les événements ce mois - ci [SEP]	6	X O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	2467
+Événements musicaux à Minneapolis	[CLS] É ##vén ##ements musica ##ux à Minneapolis [SEP]	6	X O X X B-CATEGORY_EVENT X O B-LOCATION X	2466
+Que puis - je faire à New York ce soir	[CLS] Que puis - je faire à New York ce soir [SEP]	6	X O O O O O O B-LOCATION I-LOCATION B-DATE_TIME I-DATE_TIME X	1045
+Que se passe - t - il à Birmingham ce weekend ?	[CLS] Que se passe - t - il à Birmingham ce weekend ? [SEP]	6	X O O O O O O O O B-LOCATION B-DATE_TIME I-DATE_TIME O X	1030
+Qu’ y a - t - il d’ amusant à faire cette semaine	[CLS] [UNK] y a - t - il [UNK] am ##usan ##t à faire cette semaine [SEP]	6	X O O O O O O O O O X X O O B-DATE_TIME I-DATE_TIME X	2988
+Choses à faire sur East Bay ce weekend	[CLS] Cho ##ses à faire sur East Bay ce weekend [SEP]	6	X O X O O O B-LOCATION I-LOCATION B-DATE_TIME I-DATE_TIME X	1041
+Lire les titres des journaux nationaux .	[CLS] Li ##re les titres des journaux nationaux . [SEP]	7	X O X O B-NEWS_TYPE O O B-NEWS_CATEGORY O X	1532
+Quel est le gros titre du New York Times	[CLS] Que ##l est le gros titre du New York Times [SEP]	7	X O X O O B-NEWS_REFERENCE B-NEWS_TYPE O B-NEWS_SOURCE I-NEWS_SOURCE I-NEWS_SOURCE X	2550
+Il y a des mises à jour sur la condamnation de l' ancien gouverneur de Pennsylvanie ?	[CLS] Il y a des mises à jour sur la con ##dam ##nation de l ##' ancien gouverneur de Penn ##sy ##lva ##nie ? [SEP]	7	X O O O O B-NEWS_TYPE I-NEWS_TYPE I-NEWS_TYPE O B-NEWS_TOPIC I-NEWS_TOPIC X X I-NEWS_TOPIC I-NEWS_TOPIC X I-NEWS_TOPIC I-NEWS_TOPIC I-NEWS_TOPIC I-NEWS_TOPIC X X X O X	238
+Consultez les dernières nouvelles .	[CLS] Con ##sul ##tez les dernières nouvelles . [SEP]	7	X O X X O B-NEWS_REFERENCE B-NEWS_TYPE O X	1492
+Lis - moi les gros titres locaux récents .	[CLS] Li ##s - moi les gros titres locaux r ##éc ##ents . [SEP]	7	X O X O O O B-NEWS_TYPE I-NEWS_TYPE B-NEWS_CATEGORY B-DATE_TIME X X O X	2624
+gros titres de la BBC	[CLS] gros titres de la BBC [SEP]	7	X B-NEWS_TYPE I-NEWS_TYPE O O B-NEWS_SOURCE X	2009
+Lis les derniers articles du New York Times	[CLS] Li ##s les derniers articles du New York Times [SEP]	7	X O X O B-DATE_TIME B-NEWS_TYPE O B-NEWS_SOURCE I-NEWS_SOURCE I-NEWS_SOURCE X	3169
+des nouvelles infos sur Trump aujourd'hui	[CLS] des nouvelles info ##s sur Trump aujourd ##' ##hu ##i [SEP]	7	X O B-NEWS_REFERENCE B-NEWS_TYPE X O B-NEWS_TOPIC B-DATE_TIME X X X X	2540
+quels évènements sont arrivés dans les nouvelles cette semaine ?	[CLS] quel ##s év ##ènement ##s sont ar ##rivé ##s dans les nouvelles cette semaine ? [SEP]	7	X O X O X X O O X X O O B-NEWS_TYPE B-DATE_TIME I-DATE_TIME O X	1382
+breitbart news en direct	[CLS] breit ##bart news en direct [SEP]	7	X B-NEWS_SOURCE X I-NEWS_SOURCE B-NEWS_TYPE I-NEWS_TYPE X	1600
+Quels sont les principaux sujets d' actualité pour Tokyo en ce moment ?	[CLS] Que ##ls sont les principaux sujets d ##' actual ##ité pour Tokyo en ce moment ? [SEP]	7	X O X O O B-NEWS_REFERENCE B-NEWS_TYPE I-NEWS_TYPE X I-NEWS_TYPE X O B-NEWS_TOPIC O O O O X	1486
+Quels sont les articles de presse à la une aujourd'hui ?	[CLS] Que ##ls sont les articles de presse à la une aujourd ##' ##hu ##i ? [SEP]	7	X O X O O B-NEWS_TYPE I-NEWS_TYPE I-NEWS_TYPE B-NEWS_REFERENCE I-NEWS_REFERENCE I-NEWS_REFERENCE B-DATE_TIME X X X O X	2027
+Quelles sont les informations du monde en ce moment	[CLS] Quelle ##s sont les informations du monde en ce moment [SEP]	7	X O X O O B-NEWS_TYPE O B-NEWS_CATEGORY O O O X	1534
+Fox News fait actuellement les gros titres	[CLS] Fox News fait actuellement les gros titres [SEP]	7	X B-NEWS_SOURCE I-NEWS_SOURCE O B-DATE_TIME O B-NEWS_TYPE I-NEWS_TYPE X	2616
+montre - moi des articles à propos des musulmans	[CLS] montre - moi des articles à propos des musulmans [SEP]	7	X O O O O B-NEWS_TYPE O O O B-NEWS_TOPIC X	190
+Quelles sont les nouvelles les plus importantes sur Fox ?	[CLS] Quelle ##s sont les nouvelles les plus importantes sur Fox ? [SEP]	7	X O X O O B-NEWS_TYPE B-NEWS_REFERENCE I-NEWS_REFERENCE I-NEWS_REFERENCE O B-NEWS_SOURCE O X	2054
+jouez en direct sur le point	[CLS] joue ##z en direct sur le point [SEP]	7	X O X B-NEWS_TYPE I-NEWS_TYPE B-NEWS_SOURCE I-NEWS_SOURCE I-NEWS_SOURCE X	374
+Il y a des nouvelles concernant la science ?	[CLS] Il y a des nouvelles concernant la science ? [SEP]	7	X O O O O B-NEWS_TYPE O O B-NEWS_CATEGORY O X	252
+Lisez - moi quelques titres de CNN .	[CLS] Lise ##z - moi quelques titres de CNN . [SEP]	7	X O X O O O B-NEWS_TYPE O B-NEWS_SOURCE O X	1364
+Des actualités de ma région	[CLS] Des actual ##ités de ma région [SEP]	7	X O B-NEWS_TYPE X O B-NEWS_TOPIC I-NEWS_TOPIC X	3114
+Jouez en direct sur la chaîne 13	[CLS] Jo ##ue ##z en direct sur la chaîne 13 [SEP]	7	X O X X B-NEWS_TYPE I-NEWS_TYPE O O B-NEWS_SOURCE I-NEWS_SOURCE X	373
+Lis - moi les informations sur la couverture de l’ élection	[CLS] Li ##s - moi les informations sur la couverture de [UNK] élection [SEP]	7	X O X O O O B-NEWS_TYPE B-NEWS_TOPIC I-NEWS_TOPIC I-NEWS_TOPIC I-NEWS_TOPIC I-NEWS_TOPIC I-NEWS_TOPIC X	1225
+Des nouvelles de Justin Bieber aujourd'hui ?	[CLS] Des nouvelles de Justin Bieber aujourd ##' ##hu ##i ? [SEP]	7	X O B-NEWS_TYPE O B-NEWS_TOPIC I-NEWS_TOPIC B-DATE_TIME X X X O X	1457
+Vous pouvez me lire toutes les dernières informations ?	[CLS] Vo ##us pou ##vez me lire toutes les dernières informations ? [SEP]	7	X O X O X O O O O B-NEWS_REFERENCE B-NEWS_TYPE O X	1546
+Combien y a - t - il d' anniversaires à Halloween ?	[CLS] Com ##bien y a - t - il d ##' anniversaire ##s à Halloween ? [SEP]	8	X O X O O O O O O O X O X B-DATE_TIME I-DATE_TIME O X	716
+montre - moi toutes les personnes qui travaillent chez Target	[CLS] montre - moi toutes les personnes qui travaille ##nt chez Target [SEP]	8	X O O O O O O O O X O B-EMPLOYER X	1938
+liste de mes amis	[CLS] liste de mes amis [SEP]	8	X O O B-CONTACT_RELATED B-TYPE_RELATION X	1165
+Qui est diplômé de l’ université de Virginie ?	[CLS] Qui est di ##plômé de [UNK] université de Virginie ? [SEP]	8	X O O O X O O O O B-SCHOOL O X	3017
+recherche du mari de Cameron James	[CLS] recherche du mari de Cameron James [SEP]	8	X O O B-TYPE_RELATION O B-CONTACT I-CONTACT X	1075
+est - ce que tu peux me dire qui travaille à The Family Service Thrift Shop ?	[CLS] est - ce que tu peu ##x me dire qui travaille à The Family Service Th ##rif ##t Shop ? [SEP]	8	X O O O O O O X O O O O O B-EMPLOYER I-EMPLOYER I-EMPLOYER I-EMPLOYER X X I-EMPLOYER O X	2504
+Est - ce que je connais quelqu'un qui vit à Honolulu ?	[CLS] Est - ce que je con ##nais quel ##qu ##' ##un qui vit à Honolulu ? [SEP]	8	X O O O O B-CONTACT_RELATED O X O X X X O O O B-LOCATION O X	2520
+Dis - moi qui travaille chez Starbucks .	[CLS] Dis - moi qui travaille chez Star ##bu ##cks . [SEP]	8	X O O O O O O B-EMPLOYER X X O X	1942
+Y a - t - il une personne que je connais qui est allée à Full Sail ?	[CLS] Y a - t - il une personne que je con ##nais qui est all ##ée à Full Sai ##l ? [SEP]	8	X O O O O O O O O O B-CONTACT_RELATED O X O O O X O B-SCHOOL I-SCHOOL X O X	2515
+Liste des employés de Key Bank s' il te plaît	[CLS] Liste des employés de Key Bank s ##' il te pla ##ît [SEP]	8	X O O O O B-EMPLOYER I-EMPLOYER O X O O O X X	1940
+Je dois trouver un contact à Hartford .	[CLS] Je dois trouver un contact à Hartford . [SEP]	8	X O O O O O O B-LOCATION O X	1946
+Veuillez montrer tous les amis d' Andy .	[CLS] Ve ##uille ##z montrer tous les amis d ##' Andy . [SEP]	8	X O X X O O O B-TYPE_RELATION O X B-CONTACT_RELATED O X	1164
+Combien parmi mes amis sont allés à l’ Université d’ État de Bridgewater ?	[CLS] Com ##bien parmi mes amis sont all ##és à [UNK] Université [UNK] État de Bridge ##water ? [SEP]	8	X O X O B-CONTACT_RELATED B-TYPE_RELATION O O X O O B-SCHOOL I-SCHOOL I-SCHOOL I-SCHOOL I-SCHOOL X O X	3019
+Parle - moi de Trevor	[CLS] Par ##le - moi de Trevor [SEP]	8	X O X O O O B-CONTACT X	1089
+les amis de Shawn	[CLS] les amis de Shawn [SEP]	8	X O B-TYPE_RELATION O B-CONTACT_RELATED X	1170
+Qui vit en Chine parmi mes connaissances ?	[CLS] Qui vit en Chine parmi mes connaissances ? [SEP]	8	X O O O B-CONTACT_RELATED O B-LOCATION O O X	3025
+employés du FBI	[CLS] employés du FBI [SEP]	8	X O O B-EMPLOYER X	2507
+Qui est le frère de Breanna Carlson ?	[CLS] Qui est le frère de Br ##ean ##na Carlson ? [SEP]	8	X O O O B-TYPE_RELATION O B-CONTACT X X I-CONTACT O X	2470
+Laquelle des copines de Payant est née le 30 ?	[CLS] La ##quel ##le des cop ##ines de Pay ##ant est née le 30 ? [SEP]	8	X O X X O B-TYPE_RELATION X O B-CONTACT_RELATED X O O B-DATE_TIME I-DATE_TIME O X	104
+un de mes amis habite en Virginie - Occidentale	[CLS] un de mes amis hab ##ite en Virginie - Occidentale [SEP]	8	X O O B-CONTACT_RELATED B-TYPE_RELATION O X O B-LOCATION I-LOCATION I-LOCATION X	225
+Qui fête son anniversaire ce mois - ci ?	[CLS] Qui fête son anniversaire ce mois - ci ? [SEP]	8	X O O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME O X	2497
+Un de mes amis est - il allé au Daytona State College ?	[CLS] Un de mes amis est - il all ##é au Daytona State College ? [SEP]	8	X O O B-CONTACT_RELATED B-TYPE_RELATION O O O O X O B-SCHOOL I-SCHOOL I-SCHOOL O X	1145
+Ce sera l' anniversaire de qui dans les 2 prochains mois ?	[CLS] Ce sera l ##' anniversaire de qui dans les 2 pro ##cha ##ins mois ? [SEP]	8	X O O O X O O O B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME O X	175
+Qui travaille à Jakarta ?	[CLS] Qui travaille à Jakarta ? [SEP]	8	X O O O B-LOCATION O X	1941
+Les amis de ma femme	[CLS] Les amis de ma femme [SEP]	8	X O B-TYPE_RELATION O B-CONTACT_RELATED I-CONTACT_RELATED X	1168
+Parlez - moi des amis de Ted	[CLS] Par ##lez - moi des amis de Ted [SEP]	8	X O X O O O B-TYPE_RELATION O B-CONTACT_RELATED X	228
+Montre - moi les jours d’ anniversaires des grand - mères de Velda	[CLS] Mont ##re - moi les jours [UNK] anniversaire ##s des grand - mère ##s de Ve ##lda [SEP]	8	X O X O O O O O O X O B-TYPE_RELATION I-TYPE_RELATION I-TYPE_RELATION X O B-CONTACT_RELATED X X	2300
+Qui travaille chez Happy Nails ?	[CLS] Qui travaille chez Happy Na ##ils ? [SEP]	8	X O O O B-EMPLOYER I-EMPLOYER X O X	216
+Qui vit à new jersey	[CLS] Qui vit à new jer ##sey [SEP]	8	X O O O B-LOCATION I-LOCATION X X	1950
+Qui travaille pour NBC ?	[CLS] Qui travaille pour NBC ? [SEP]	8	X O O O B-EMPLOYER O X	1124
+Trouve - moi une recette de tourte aux fruits	[CLS] T ##rou ##ve - moi une re ##cet ##te de tour ##te aux fruits [SEP]	9	X O X X O O O O X X O B-RECIPES_DISH X I-RECIPES_DISH I-RECIPES_DISH X	333
+Trouve une recette sur des rouleaux aux choux	[CLS] T ##rou ##ve une re ##cet ##te sur des ro ##ule ##aux aux cho ##ux [SEP]	9	X O X X O O X X O O B-RECIPES_DISH X X I-RECIPES_DISH I-RECIPES_DISH X X	1565
+Recette du poulet frit	[CLS] Rec ##ette du poule ##t fri ##t [SEP]	9	X O X O B-RECIPES_DISH X I-RECIPES_DISH X X	329
+Quelles sont les recettes italiennes ?	[CLS] Quelle ##s sont les re ##cet ##tes italienne ##s ? [SEP]	9	X O X O O O X X B-RECIPES_TYPE X O X	1573
+Trouve - moi une recette avec du poulet et du riz	[CLS] T ##rou ##ve - moi une re ##cet ##te avec du poule ##t et du ri ##z [SEP]	9	X O X X O O O O X X O O B-RECIPES_INCLUDED_INGREDIENT X O O B-RECIPES_INCLUDED_INGREDIENT X X	1959
+Meilleure recette de poulet	[CLS] Meilleure re ##cet ##te de poule ##t [SEP]	9	X B-RECIPES_RATING O X X O B-RECIPES_INCLUDED_INGREDIENT X X	341
+Peux - tu trouver une recette de stroganoff sans champignons	[CLS] Peu ##x - tu trouver une re ##cet ##te de str ##oga ##no ##ff sans champ ##ign ##ons [SEP]	9	X O X O O O O O X X O B-RECIPES_DISH X X X O B-RECIPES_EXCLUDED_INGREDIENT X X X	3061
+Peux - tu me trouver une recette pour le poulet à l’ Alfredo ?	[CLS] Peu ##x - tu me trouver une re ##cet ##te pour le poule ##t à [UNK] Alfredo ? [SEP]	9	X O X O O O O O O X X O O B-RECIPES_DISH X I-RECIPES_DISH I-RECIPES_DISH I-RECIPES_DISH O X	232
+Quelques idées de déjeuners pour les enfants ?	[CLS] Quelques idées de dé ##je ##une ##rs pour les enfants ? [SEP]	9	X O O O B-RECIPES_MEAL X X X O O O O X	1290
+Comment faire du Ropa Vieja	[CLS] Comment faire du R ##opa Vie ##ja [SEP]	9	X O O O B-RECIPES_DISH X I-RECIPES_DISH X X	234
+Donnez - moi une recette végétalienne s’ il vous plait .	[CLS] Don ##nez - moi une re ##cet ##te v ##égét ##ali ##enne [UNK] il vous pla ##it . [SEP]	9	X O X O O O O X X B-RECIPES_TYPE X X X O O O O X O X	1549
+Trouve une recette de casserole mexicaine	[CLS] T ##rou ##ve une re ##cet ##te de cas ##sero ##le me ##xica ##ine [SEP]	9	X O X X O O X X O B-RECIPES_DISH X X B-RECIPES_CUISINE X X X	1176
+Comment cuisiner un cau cau péruvien	[CLS] Comment cuisine ##r un ca ##u ca ##u pé ##ru ##vien [SEP]	9	X O O X O B-RECIPES_DISH X I-RECIPES_DISH X B-RECIPES_TYPE X X X	2561
+Comment prépare - t - on la sauce aux canneberges ?	[CLS] Comment pré ##pare - t - on la sau ##ce aux can ##neb ##erg ##es ? [SEP]	9	X O O X O O O O O B-RECIPES_DISH X I-RECIPES_DISH I-RECIPES_DISH X X X O X	1554
+quelle est la meilleure façon de cuisiner une dinde pour Thanks Giving	[CLS] quelle est la meilleure façon de cuisine ##r une din ##de pour Thank ##s G ##iving [SEP]	9	X O O O B-RECIPES_RATING O O O X O B-RECIPES_DISH X O O X O X X	2567
+Comment faire une omelette parfaite	[CLS] Comment faire une om ##elet ##te par ##fait ##e [SEP]	9	X O O O B-RECIPES_DISH X X O X X X	1570
+trouve - moi une recette facile de cookie	[CLS] trouve - moi une re ##cet ##te facile de co ##okie [SEP]	9	X O O O O O X X B-RECIPES_ATTRIBUTE O B-RECIPES_DISH X X	3183
+Trouve - moi une recette végétalienne	[CLS] T ##rou ##ve - moi une re ##cet ##te v ##égét ##ali ##enne [SEP]	9	X O X X O O O O X X B-RECIPES_TYPE X X X X	2728
+Règle la minuterie sur 20 minutes	[CLS] R ##è ##gle la minute ##rie sur 20 minutes [SEP]	10	X O X X O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2658
+Nouveau minuteur pour 15 minutes	[CLS] Nouveau minute ##ur pour 15 minutes [SEP]	10	X O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	1461
+j’ ai besoin d’ une deuxième minuterie pour 3 minutes	[CLS] [UNK] ai besoin [UNK] une deuxième minute ##rie pour 3 minutes [SEP]	10	X O O O O O B-ORDINAL B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2005
+Réglez la minuterie à 20 secondes .	[CLS] R ##ég ##lez la minute ##rie à 20 secondes . [SEP]	10	X O X X O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME I-DATE_TIME O X	1524
+démarre une minuterie d' une minute	[CLS] dé ##mar ##re une minute ##rie d ##' une minute [SEP]	10	X O X X O B-METHOD_TIMER X B-DATE_TIME X I-DATE_TIME I-DATE_TIME X	2153
+Programme la minuterie pour les 15 prochaines minutes	[CLS] Programme la minute ##rie pour les 15 pro ##cha ##ines minutes [SEP]	10	X O O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME X	2708
+crée une minuterie pour la lessive	[CLS] crée une minute ##rie pour la less ##ive [SEP]	10	X O O B-METHOD_TIMER X O O B-TIMER_NAME X X	1631
+Démarrez mon minuteur tout de suite	[CLS] D ##ém ##arre ##z mon minute ##ur tout de suite [SEP]	10	X O X X X O B-METHOD_TIMER X O O O X	322
+Mets une alarme à 3h	[CLS] Mets une ala ##rme à 3 ##h [SEP]	10	X O O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME X X	1544
+Ajoute une minuterie de 25 minutes	[CLS] Ajo ##ute une minute ##rie de 25 minutes [SEP]	10	X O X O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2688
+Allumez la minuterie .	[CLS] All ##ume ##z la minute ##rie . [SEP]	10	X O X X O B-METHOD_TIMER X O X	1401
+Lance la minuterie à 8h05	[CLS] Lance la minute ##rie à 8 ##h ##0 ##5 [SEP]	10	X O O B-METHOD_TIMER X B-DATE_TIME I-DATE_TIME X X X X	1516
+Annulez mon rappel pour aller courir .	[CLS] Ann ##ule ##z mon rap ##pel pour aller cour ##ir . [SEP]	11	X O X X B-PERSON_REMINDED O X O B-TODO I-TODO X O X	840
+Supprime tous les rappels créés en février	[CLS] Su ##pp ##rime tous les rap ##pel ##s créé ##s en février [SEP]	11	X O X X B-AMOUNT O O X X O X B-DATE_TIME I-DATE_TIME X	887
+annule toutes mes alarmes et mes rappels	[CLS] ann ##ule toutes mes ala ##rmes et mes rap ##pel ##s [SEP]	11	X O X B-AMOUNT O O X O O O X X X	161
+Supprime tous mes rappels de la semaine prochaine	[CLS] Su ##pp ##rime tous mes rap ##pel ##s de la semaine pro ##cha ##ine [SEP]	11	X O X X B-AMOUNT B-PERSON_REMINDED O X X B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X X X	2911
+Annulez le rappel pour la lessive de ce soir	[CLS] Ann ##ule ##z le rap ##pel pour la less ##ive de ce soir [SEP]	11	X O X X O O X O O B-TODO X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	980
+Supprime mes rappels pour aujourd'hui .	[CLS] Su ##pp ##rime mes rap ##pel ##s pour aujourd ##' ##hu ##i . [SEP]	11	X O X X B-PERSON_REMINDED O X X B-DATE_TIME I-DATE_TIME X X X O X	1762
+supprime le rappel de départ du bureau	[CLS] su ##pp ##rime le rap ##pel de départ du bureau [SEP]	11	X O X X O O X O B-TODO I-TODO I-TODO X	1878
+Efface le rappel de faire la vaisselle à 4 h	[CLS] E ##ffa ##ce le rap ##pel de faire la vai ##ssel ##le à 4 h [SEP]	11	X O X X O O X O B-TODO I-TODO I-TODO X X B-DATE_TIME I-DATE_TIME I-DATE_TIME X	2410
+Supprimez tous les rappels pour ce mercredi .	[CLS] Su ##pp ##rime ##z tous les rap ##pel ##s pour ce mer ##cre ##di . [SEP]	11	X O X X X B-AMOUNT O O X X B-DATE_TIME I-DATE_TIME I-DATE_TIME X X O X	916
+Supprime le rappel concernant la fête de Logan pour ce week - end	[CLS] Su ##pp ##rime le rap ##pel concernant la fête de Logan pour ce week - end [SEP]	11	X O X X O O X O O B-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	1832
+Supprimez le rappel sur l’ achat des crayons de couleur	[CLS] Su ##pp ##rime ##z le rap ##pel sur [UNK] ach ##at des c ##ray ##ons de couleur [SEP]	11	X O X X X O O X O O B-TODO X I-TODO I-TODO X X I-TODO I-TODO X	984
+Supprime le rappel d’ appeler demain pour les réservations	[CLS] Su ##pp ##rime le rap ##pel [UNK] appel ##er dem ##ain pour les r ##ése ##rva ##tions [SEP]	11	X O X X O O X O B-TODO X B-DATE_TIME X B-TODO I-TODO I-TODO X X X X	1008
+Quels sont mes rappels pour mardi matin ?	[CLS] Que ##ls sont mes rap ##pel ##s pour mar ##di matin ? [SEP]	12	X O X O B-PERSON_REMINDED O X X B-DATE_TIME I-DATE_TIME X I-DATE_TIME O X	970
+Quels rappels ai - je pour demain ?	[CLS] Que ##ls rap ##pel ##s ai - je pour dem ##ain ? [SEP]	12	X O X O X X O O B-PERSON_REMINDED B-DATE_TIME I-DATE_TIME X O X	847
+Avez - vous un rappel prévu pour mon examen de demain ?	[CLS] Ave ##z - vous un rap ##pel prévu pour mon examen de dem ##ain ? [SEP]	12	X O X O O O O X O B-PERSON_REMINDED I-PERSON_REMINDED B-TODO B-DATE_TIME I-DATE_TIME X O X	923
+Retrouvez tous les rappels de l' année dernière sur Pat	[CLS] Re ##tro ##uve ##z tous les rap ##pel ##s de l ##' année dernière sur Pat [SEP]	12	X B-METHOD_RETRIEVAL_REMINDER X X X B-AMOUNT O O X X B-DATE_TIME I-DATE_TIME X I-DATE_TIME I-DATE_TIME O B-TODO X	945
+Est - ce que Allie a un rendez - vous chez le vétérinaire les 3 prochains mois ?	[CLS] Est - ce que All ##ie a un rende ##z - vous chez le v ##été ##rina ##ire les 3 pro ##cha ##ins mois ? [SEP]	12	X O O O O B-PERSON_REMINDED X O O B-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO X X X B-DATE_TIME I-DATE_TIME I-DATE_TIME X X I-DATE_TIME O X	885
+quels rappels ai - je pour le week - end	[CLS] quel ##s rap ##pel ##s ai - je pour le week - end [SEP]	12	X O X O X X O O B-PERSON_REMINDED B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	1844
+Montrez - moi tous les rappels relatifs à mon chat .	[CLS] Mont ##rez - moi tous les rap ##pel ##s relatif ##s à mon chat . [SEP]	12	X B-METHOD_RETRIEVAL_REMINDER X O B-PERSON_REMINDED B-AMOUNT O O X X O X O B-TODO I-TODO O X	911
+Ai - je prévu un rappel pour le rendez - vous du 6 octobre chez le médecin	[CLS] Ai - je prévu un rap ##pel pour le rende ##z - vous du 6 octobre chez le médecin [SEP]	12	X O O B-PERSON_REMINDED O O O X O B-TODO I-TODO X I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO I-TODO X	2397
+Montre - moi le rappel pour la visite de la maison	[CLS] Mont ##re - moi le rap ##pel pour la visite de la maison [SEP]	12	X B-METHOD_RETRIEVAL_REMINDER X O B-PERSON_REMINDED O O X O O B-TODO I-TODO I-TODO I-TODO X	2375
+Ai - je des rappels de travail pour jeudi matin ?	[CLS] Ai - je des rap ##pel ##s de travail pour jeu ##di matin ? [SEP]	12	X O O B-PERSON_REMINDED O O X X O B-TODO B-DATE_TIME I-DATE_TIME X I-DATE_TIME O X	975
+Affiche les rappels de la soirée cinéma .	[CLS] Af ##fic ##he les rap ##pel ##s de la soirée cinéma . [SEP]	12	X B-METHOD_RETRIEVAL_REMINDER X X O O X X O O B-TODO I-TODO O X	1847
+Montre - moi tous les rappels pour les ajustements de la robe de mariée ce mois - ci	[CLS] Mont ##re - moi tous les rap ##pel ##s pour les aj ##uste ##ments de la robe de mariée ce mois - ci [SEP]	12	X B-METHOD_RETRIEVAL_REMINDER X O B-PERSON_REMINDED B-AMOUNT O O X X O B-TODO I-TODO X X I-TODO I-TODO I-TODO I-TODO I-TODO B-DATE_TIME I-DATE_TIME I-DATE_TIME I-DATE_TIME X	170
+Pendant combien de temps fait - on cuire un œuf dur	[CLS] Pendant com ##bien de temps fait - on cui ##re un œ ##uf dur [SEP]	13	X O B-RECIPES_ATTRIBUTE X I-RECIPES_ATTRIBUTE I-RECIPES_ATTRIBUTE O O O O X B-RECIPES_DISH I-RECIPES_DISH X I-RECIPES_DISH X	2720
+de quels ingrédients j' ai besoin pour faire une sauce de spaghetti ?	[CLS] de quel ##s ing ##ré ##dien ##ts j ##' ai besoin pour faire une sau ##ce de sp ##agh ##etti ? [SEP]	13	X O O X B-RECIPES_ATTRIBUTE X X X O X O O O O O B-RECIPES_DISH X I-RECIPES_DISH I-RECIPES_DISH X X O X	1988
+Recherchez les ingrédients pour un smoothie à la mangue	[CLS] Recherche ##z les ing ##ré ##dien ##ts pour un smooth ##ie à la mang ##ue [SEP]	13	X O X O B-RECIPES_ATTRIBUTE X X X O O B-RECIPES_DISH X I-RECIPES_DISH I-RECIPES_DISH I-RECIPES_DISH X X	1553
+Comment cuire le saumon	[CLS] Comment cui ##re le sau ##mon [SEP]	13	X O O X O B-RECIPES_INCLUDED_INGREDIENT X X	2568
+Depuis combien de minutes se trouvent ces biscuits dans le four ?	[CLS] Depuis com ##bien de minutes se trouvent ces bis ##cu ##its dans le four ? [SEP]	13	X O B-RECIPES_ATTRIBUTE X O O O O O B-RECIPES_DISH X X O O B-RECIPES_COOKING_METHOD O X	1234
+De quels ingrédients ai - je besoin pour faire des ramens au miso	[CLS] De quel ##s ing ##ré ##dien ##ts ai - je besoin pour faire des ra ##mens au mis ##o [SEP]	13	X O O X B-RECIPES_ATTRIBUTE X X X O O O O O O B-RECIPES_DISH I-RECIPES_DISH X I-RECIPES_DISH I-RECIPES_DISH X X	1991
+Comment je copie cette recette	[CLS] Comment je copie cette re ##cet ##te [SEP]	13	X O O O O B-METHOD_RECIPES X X X	1548
+Quels sont les ingrédients d' une salade Cobb ?	[CLS] Que ##ls sont les ing ##ré ##dien ##ts d ##' une sala ##de Cobb ? [SEP]	13	X O X O O B-RECIPES_ATTRIBUTE X X X O X O B-RECIPES_DISH X I-RECIPES_DISH O X	1180
+Qu' est - ce qu' un Bulletproof Coffee	[CLS] Qu ##' est - ce qu ##' un Bullet ##pro ##of Coffee [SEP]	13	X O X O O O O X O B-RECIPES_DISH X X I-RECIPES_DISH X	3058
+Donne les ingrédients pour la sauce spaghetti	[CLS] Don ##ne les ing ##ré ##dien ##ts pour la sau ##ce sp ##agh ##etti [SEP]	13	X O X O B-RECIPES_ATTRIBUTE X X X O O B-RECIPES_DISH X I-RECIPES_DISH X X X	1236
+Combien de temps cuire le risotto	[CLS] Com ##bien de temps cui ##re le ri ##sot ##to [SEP]	13	X B-RECIPES_ATTRIBUTE X I-RECIPES_ATTRIBUTE I-RECIPES_ATTRIBUTE O X O B-RECIPES_DISH X X X	340
+À quelle température dois - je faire cuire le jambon	[CLS] À quelle température dois - je faire cui ##re le jam ##bon [SEP]	13	X O O B-RECIPES_ATTRIBUTE O O O O O X O B-RECIPES_DISH X X	3182
