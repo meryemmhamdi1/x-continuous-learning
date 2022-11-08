@@ -1,10 +1,41 @@
 import logging
 from consts import INTENT_TYPES, SLOT_TYPES
-import csv, json, re, os
+import csv, json, re, os, copy
 from torch import LongTensor
 from processors.utils import clean_text
 
 logger = logging.getLogger(__name__)
+
+
+class TODExample(object):
+  """
+  A single training/test example for task-oriented dialogue task.
+  Args:
+    unique_id: Unique id for the example.
+    utterance: string. The untokenized text of the dialog utterance. 
+    tokens: list. the list of tokens used 
+    intent_label: (Optional) string. The intent label of the example.
+    slot_labels: slot labels in BIO annotation one-to-one mapped to the subtokens 
+  """
+
+  def __init__(self, unique_id, utterance, tokens, intent_label, slot_labels=None):
+    self.unique_id = unique_id
+    self.utterance = utterance
+    self.tokens = tokens
+    self.intent_label = intent_label
+    self.slot_labels = slot_labels
+
+  def __repr__(self):
+    return str(self.to_json_string())
+
+  def to_dict(self):
+    """Serializes this instance to a Python dictionary."""
+    output = copy.deepcopy(self.__dict__)
+    return output
+
+  def to_json_string(self):
+    """Serializes this instance to a JSON string."""
+    return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
 
 def _parse_schuster(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O", "X"], seen_examples=[]):
     """
@@ -97,8 +128,14 @@ def _parse_schuster(data_path, tokenizer, split, lang, intent_set=[], slot_set=[
 
             id_ = split + "_" + lang + "_" + str(i)
 
-            process_egs.append((' '.join(tokens), sub_tokens, intent, sub_slots, id_))
-            process_egs_dict.update({id_: (' '.join(tokens), sub_tokens, intent, sub_slots, id_)})
+            example = TODExample(unique_id=id_,
+                                 utterance=' '.join(tokens),
+                                 tokens=sub_tokens,
+                                 intent_label=intent,
+                                 slot_labels=sub_slots)
+
+            process_egs.append(example)
+            process_egs_dict.update({id_: example})
 
     return process_egs, process_egs_dict, intent_set, slot_set
 
@@ -119,76 +156,18 @@ def _parse_jarvis(data_path, tokenizer,  split, lang, intent_set=[]):
             if len(words) >= 3 and words[-2].endswith('?'):
                 words[-2] = words[-2][:-1]
             tokenized_words = ['[CLS]'] + tokenizer.tokenize(' '.join(words)) + ['[SEP]']
-            process_egs.append((''.join(words), list(tokenized_words),  intent, id_))
             id_ = split + "_" + lang + "_" + str(i)
-            process_egs_dict.update({id_: (''.join(words), list(tokenized_words),  intent, id_)})
+
+            example = TODExample(unique_id=id_,
+                                 utterance=' '.join(words),
+                                 tokens=list(tokenized_words),
+                                 intent_label=intent)
+
+            process_egs.append(example)
+            process_egs_dict.update({id_: example})
             i += 1
+
     return process_egs, process_egs_dict, intent_set
-
-
-def _parse_mtop_simplified(data_path, intent_set=[], slot_set=["O", "X"]):
-    """
-    To process the flat representation of MTOP by taking the top level in the hierarchical representation
-    """
-    process_egs = []
-    slot_set_unique = []
-    with open(data_path) as tsv_file:
-        reader = csv.reader(tsv_file, delimiter="\t")
-        for i, line in enumerate(reader):
-            domain = line[3]
-            intent = domain+":"+line[0].split(":")[1]
-            slot_splits = re.split(',|，', line[1])
-            utterance = line[2]
-
-            if intent not in intent_set:
-                intent_set.append(intent)
-
-            locale = line[4]
-            decoupled_form = line[5]
-
-            slot_line = []
-            if line[1] != '':
-                for item in slot_splits:
-                    if item != '':
-                        item_splits = item.split(":")
-                        assert len(item_splits) == 4
-                        slot_item = {"start": item_splits[0], "end": item_splits[1], "slot": item_splits[3]}
-                        slot_line.append(slot_item)
-
-            token_part = json.loads(line[6])
-
-            tokens = token_part["tokens"]
-            tokenSpans = token_part["tokenSpans"]
-            slots = []
-            for tokenspan in tokenSpans:
-                nolabel = True
-                for slot_item in slot_line:
-                    start = tokenspan["start"]
-                    if slot_item["slot"] not in slot_set_unique:
-                        slot_set_unique.append(slot_item["slot"])
-                    # if int(start) >= int(slot_item["start"]) and int(start) < int(slot_item["end"]):
-                    if int(start) == int(slot_item["start"]):
-                        nolabel = False
-                        slot_ = "B-" + slot_item["slot"]
-                        slots.append(slot_)
-                        if slot_ not in slot_set:
-                            slot_set.append(slot_)
-                        break
-                    if int(slot_item["start"]) < int(start) < int(slot_item["end"]):
-                        nolabel = False
-                        slot_ = "I-" + slot_item["slot"]
-                        slots.append(slot_)
-                        if slot_ not in slot_set:
-                            slot_set.append(slot_)
-                        break
-                if nolabel:
-                    slots.append("O")
-
-            assert len(slots) == len(tokens)
-
-            process_egs.append((' '.join(tokens), intent, slots))
-
-    return process_egs, intent_set, slot_set_unique
 
 
 def _parse_mtop(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O", "X"]):
@@ -285,8 +264,16 @@ def _parse_mtop(data_path, tokenizer, split, lang, intent_set=[], slot_set=["O",
             assert len(sub_slots) == len(sub_tokens)
 
             id_ = split+"_"+lang+"_"+str(i)
-            process_egs.append([' '.join(tokens), sub_tokens, intent, sub_slots, id_])
-            process_egs_dict.update({id_: (' '.join(tokens), sub_tokens, intent, sub_slots, id_)})
+
+            example = TODExample(unique_id=id_,
+                                 utterance=' '.join(tokens),
+                                 tokens=sub_tokens,
+                                 intent_label=intent,
+                                 slot_labels=sub_slots)
+
+            process_egs.append(example)
+            process_egs_dict.update({id_: example})
+
 
     return process_egs, process_egs_dict, intent_set, slot_set
 
@@ -345,8 +332,15 @@ def _parse_multi_atis(data_path, tokenizer, split, lang, intent_set=[], slot_set
             assert len(sub_slots) == len(sub_tokens)
 
             id_ = split+"_"+lang+"_"+str(i)
-            process_egs.append([' '.join(tokens), sub_tokens, intent, sub_slots, id_])
-            process_egs_dict.update({id_: (' '.join(tokens), sub_tokens, intent, sub_slots, id_)})
+
+            example = TODExample(unique_id=id_,
+                                 utterance=' '.join(tokens),
+                                 tokens=sub_tokens,
+                                 intent_label=intent,
+                                 slot_labels=sub_slots)
+
+            process_egs.append(example)
+            process_egs_dict.update({id_: example})
 
     return process_egs, process_egs_dict, intent_set, slot_set
 
@@ -359,6 +353,7 @@ class Processor(object):
         self.data_name = args.data_name
         self.data_format = args.data_format
         self.data_root = args.data_root
+        self.use_slots = args.use_slots
         self.tokenizer = tokenizer
         self.class_types = INTENT_TYPES[self.data_name]
         self.slot_types = SLOT_TYPES[self.data_name]
@@ -368,6 +363,9 @@ class Processor(object):
                          "multiatis": _parse_multi_atis} # tsv
 
     def read_split(self, lang, split_name):
+        if self.data_name == "multiatis":
+            self.data_root = os.path.join(self.data_root, "multi_atis_all")
+
         file_path = os.path.join(os.path.join(self.data_root, lang), split_name)
 
         process_egs, process_egs_dict, self.class_types, self.slot_types = self.func_map[self.data_name](file_path + "." + self.data_format,
@@ -389,29 +387,27 @@ class Processor(object):
         max_sent_len = 0
 
         input_ids, lengths, intent_labels, slot_labels, token_type_ids, input_masks, \
-            input_texts, input_identifiers = [], [], [], [], [], [], [], []
-
+            input_texts = [], [], [], [], [], [], []
+ 
         for example in examples:
-            input_texts.append(example[0])
+            input_texts.append(example.utterance)
 
-            cur_input_ids = self.tokenizer.convert_tokens_to_ids(example[1])
-            assert len(cur_input_ids) == len(example[1])
+            cur_input_ids = self.tokenizer.convert_tokens_to_ids(example.tokens)
+            assert len(cur_input_ids) == len(example.tokens)
             input_ids.append(cur_input_ids)
 
-            max_sent_len = max(max_sent_len, len(example[1]))
+            max_sent_len = max(max_sent_len, len(example.tokens))
 
             lengths.append(len(cur_input_ids))
 
-            intent_labels.append(example[2])
+            intent_labels.append(example.intent_label)
 
             if self.use_slots:
-                assert len(cur_input_ids) == len(example[3])
+                assert len(cur_input_ids) == len(example.slot_labels)
                 slot_labels_sub = []
-                for slot in example[3]:
+                for slot in example.slot_labels:
                     slot_labels_sub.append(self.slot_types.index(slot))
                 slot_labels.append(slot_labels_sub)
-
-            input_identifiers.append(example[4])
 
         # Padding
         for i in range(batch_size):
@@ -432,5 +428,4 @@ class Processor(object):
         input_masks = LongTensor(input_masks)
         # attention_mask = LongTensor(attention_mask)
 
-        return (input_ids, lengths, token_type_ids, input_masks, intent_labels,
-                slot_labels, input_texts, input_identifiers), examples
+        return {"input_ids": input_ids, "input_masks": input_masks, "lengths": lengths, "labels": intent_labels, "slot_labels": slot_labels}, examples

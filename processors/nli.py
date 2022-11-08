@@ -12,7 +12,7 @@ class NLIExample(object):
   """
   A single training/test example for simple sequence classification.
   Args:
-    guid: Unique id for the example.
+    unique_id: Unique id for the example.
     text_a: string. The untokenized text of the first sequence. For single
     sequence tasks, only this sequence must be specified.
     text_b: (Optional) string. The untokenized text of the second sequence.
@@ -21,8 +21,8 @@ class NLIExample(object):
     specified for train and dev examples, but not for test examples.
   """
 
-  def __init__(self, guid, text_a, text_b=None, label=None, language=None, input_ids=None, attention_mask=None, token_type_ids=None):
-    self.guid = guid
+  def __init__(self, unique_id, text_a, text_b=None, label=None, language=None, input_ids=None, attention_mask=None, token_type_ids=None):
+    self.unique_id = unique_id
     self.text_a = text_a
     self.text_b = text_b
     self.label = label
@@ -83,7 +83,7 @@ def _parse_xnli(data_path,
             len(token_type_ids), args.xnli_max_length)
 
         id_ = split+"_"+lang+"_"+str(i)
-        example = NLIExample(guid=id_, 
+        example = NLIExample(unique_id=id_, 
                              text_a=text_a, 
                              text_b=text_b, 
                              label=label, 
@@ -129,11 +129,10 @@ class Processor(object):
 
         # max_sent_len = 0
         input_ids, lengths, labels, token_type_ids, input_masks, \
-            input_texts_a, input_texts_b, input_identifiers = [], [], [], [], [], [], [], []
+            input_texts_a, input_texts_b = [], [], [], [], [], [], []
 
 
         for example in examples:
-            input_identifiers.append(example.guid)
             input_texts_a.append(example.text_a)
             input_texts_b.append(example.text_b)
             labels.append(example.label)
@@ -159,5 +158,5 @@ class Processor(object):
         token_type_ids = LongTensor(token_type_ids)
         input_masks = LongTensor(input_masks)
 
-        return (input_ids, lengths, token_type_ids, input_masks, labels, 
-                input_texts_a, input_texts_b, input_identifiers), examples
+        # Batch tensors, text tuples (input_texts_a, input_texts_b), identifiers (input_identifiers), examples
+        return {"input_ids": input_ids, "input_masks": input_masks, "token_type_ids": token_type_ids, "labels": labels},  examples

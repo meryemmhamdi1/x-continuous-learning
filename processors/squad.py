@@ -8,7 +8,6 @@ from functools import partial
 from processors.utils import _is_whitespace, _improve_answer_span, _check_is_max_context, _new_check_is_max_context
 from multiprocessing import Pool, cpu_count
 
-
 from transformers.file_utils import is_torch_available
 from transformers.tokenization_bert import whitespace_tokenize
 from transformers import DataProcessor
@@ -516,6 +515,7 @@ class Processor(object):
         self.data_format = args.data_format
         self.data_root = args.data_root
         self.tokenizer = tokenizer
+        self.class_types = ["START", "END"]
 
     def read_split(self, lang, split_name):
         file_path = os.path.join(os.path.join(self.data_root, lang), split_name)
@@ -535,12 +535,13 @@ class Processor(object):
         else:
             features = data_split.next_items(batch_size)
 
-
         input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
         attention_masks = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
         token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+        start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
+        end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
         cls_index = torch.tensor([f.cls_index for f in features], dtype=torch.long)
         p_mask = torch.tensor([f.p_mask for f in features], dtype=torch.float)
         langs = torch.tensor([f.langs for f in features], dtype=torch.long)
 
-        return (input_ids, attention_masks, token_type_ids, cls_index, p_mask, langs), features
+        return {"input_ids": input_ids, "attention_masks": attention_masks, "token_type_ids": token_type_ids, "start_positions": start_positions, "end_positions": end_positions}, features
