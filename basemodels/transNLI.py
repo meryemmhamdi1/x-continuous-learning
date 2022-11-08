@@ -1,25 +1,19 @@
 import torch.nn as nn
 import torch
-from basemodels.transNLU import TransNLU
-from basemodels.crf import CRFLayer
 from utils import import_from, Results
 # from transformers import AdapterConfig
 
 
-class TransNLUCRF(TransNLU):
+class TransNLI(nn.Module):
     def __init__(self,
                  args,
                  trans_model,
                  num_tasks,
-                 num_labels,  # total number of intents
-                 eff_num_classes_task,  # effective number of intents per task
-                 device,
-                 num_slots=0):
+                 num_labels,  # total number of labels
+                 eff_num_classes_task,  # effective number of labels per task
+                 device):
 
-        super(TransNLUCRF, self).__init__(trans_model,
-                                          num_labels,
-                                          args.use_slots,
-                                          num_slots)
+        super(TransNLI, self).__init__()
 
         self.args = args
         self.use_multi_head_in = args.multi_head_in
@@ -27,7 +21,6 @@ class TransNLUCRF(TransNLU):
         self.num_tasks = num_tasks
 
         self.config = trans_model.config
-        self.use_slots = args.use_slots
         self.use_adapters = args.use_adapters
 
         self.trans_model = trans_model
@@ -36,9 +29,6 @@ class TransNLUCRF(TransNLU):
         self.eff_num_classes_task = eff_num_classes_task
 
         self.device = device
-
-        self.use_slots = args.use_slots
-        self.num_slots = num_slots
 
         self.dropout = nn.Dropout(trans_model.config.hidden_dropout_prob)
 
@@ -50,46 +40,38 @@ class TransNLUCRF(TransNLU):
 
         self.criterion = torch.nn.CrossEntropyLoss()
 
-        if self.use_slots:
-            self.slot_classifier = nn.Linear(trans_model.config.hidden_size, self.num_slots)
-
-            self.crf_layer = CRFLayer(self.num_slots, self.device)
-
         if self.use_adapters:
             Adapter = import_from('contlearnalg.adapter', args.adapter_type)
-            self.adapter = Adapter(trans_model.config.hidden_size)  # (16, 24, 768)
+            self.adapter = Adapter(trans_model.config.hidden_size)
 
             self.adapter_layers = args.adapter_layers
 
     def forward(self,
                 input_ids,
                 input_masks,
+                token_type_ids,
                 train_idx,
-                lengths,
-                labels=None,
-                slot_labels=None):
+                labels=None):
         """
         Forward pass
         :param input_ids:
         :param input_masks:
         :param train_idx:
-        :param lengths:
         :param labels:
-        :param slot_labels:
         :return:
         """
 
         if self.training:
             self.trans_model.train()
-            self.crf_layer.train()
             lm_output = self.trans_model(input_ids=input_ids,
-                                         attention_mask=input_masks)
+                                         attention_mask=input_masks,
+                                         token_type_ids=token_type_ids)
         else:
             self.trans_model.eval()
-            self.crf_layer.eval()
             with torch.no_grad():
                 lm_output = self.trans_model(input_ids=input_ids,
-                                             attention_mask=input_masks)
+                                             attention_mask=input_masks,
+                                             token_type_ids=token_type_ids)
 
         if self.use_adapters:
             hidden_outputs = []
@@ -115,43 +97,35 @@ class TransNLUCRF(TransNLU):
                          attentions=lm_output.attentions)
 
         if "cil" in self.args.setup_opt and self.use_multi_head_out:
-            logits_intents = self.gclassifier[train_idx](pooled_output)
+            logits = self.gclassifier[train_idx](pooled_output)
         else:
-            logits_intents = self.gclassifier(pooled_output)
+            logits = self.gclassifier(pooled_output)
 
-        intent_loss = self.criterion(logits_intents, labels)
+        loss = self.criterion(logits, labels)
 
-        output.add_loss("intent_class", intent_loss)
-        output.add_logits("class", logits_intents.to(torch.device("cpu")))
-
-        loss = intent_loss
-
-        if self.use_slots:
-            logits_slots_nocrf = self.slot_classifier(lm_output[0])
-            slot_loss = self.crf_layer.loss(logits_slots_nocrf, slot_labels)
-
-            loss += slot_loss
-
-            logits_slots = self.crf_decode(logits_slots_nocrf, lengths)
-
-            output.add_loss("slots", slot_loss)
-            output.add_logits("slots_nokd", logits_slots.to(torch.device("cpu")))
-            output.add_logits("slots_nocrf", logits_slots_nocrf.to(torch.device("cpu")))
-
+        output.add_loss("nli_class", loss)
+        output.add_logits("class", logits.to(torch.device("cpu")))
+        
         output.add_loss("overall", loss)
 
-        return output 
+        return output
 
-    def crf_decode(self, inputs, lengths):
-        """ crf decode
-        Input:
-            inputs: output of SlotPredictor (bsz, seq_len, num_slot)
-            lengths: lengths of x (bsz, )
-        Ouput:
-            crf_decode: the predictions
+
+    def get_embeddings(self, input_ids, input_masks):
         """
+        Computes the embeddings in eval mode
+        :param input_ids:
+        :param input_masks:
+        :return:
+        """
+        self.trans_model.eval()
+        with torch.no_grad():
+            lm_output = self.trans_model(input_ids=input_ids,
+                                         attention_mask=input_masks)
 
-        prediction = self.crf_layer(inputs)
+            cls_token = lm_output[0][:, 0, :]
 
-        return prediction
-        
+        pooled_output = self.dropout(cls_token)
+
+
+        return pooled_output
