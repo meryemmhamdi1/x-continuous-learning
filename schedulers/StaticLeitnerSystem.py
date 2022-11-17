@@ -2,9 +2,6 @@ from tqdm import tqdm
 class LeitnerQueue(object):
     def __init__(self,
                  num_decks=5,
-                 dataset=None,
-                 train_examples=None,
-                 nb_examples=0,
                  demote_to_first=False):
         """
         n decks (or FIFO queues)
@@ -12,26 +9,18 @@ class LeitnerQueue(object):
         self.num_decks = num_decks
         self.decks = [[] for _ in range(self.num_decks)]
         self.deck_of_items = {}
-        self.dataset = dataset
-        self.train_examples = train_examples
-        self.nb_examples = nb_examples
         self.demote_to_first=demote_to_first
 
+    def init_first_deck(self, train_examples, nb_examples, dataset):
         # Place everything in the first deck as an initialization
-        if self.train_examples:
-            # input_identifiers_all = []
-            for _ in tqdm(range(self.nb_examples)):
-                batch_one, text \
-                    = dataset.next_batch(1, self.train_examples)
+        for _ in tqdm(range(nb_examples)):
+            batch_one, examples \
+                = dataset.next_batch(1, train_examples)
 
-                input_ids, lengths, token_type_ids, input_masks, intent_labels, slot_labels, input_texts, \
-                    input_identifiers = batch_one
+            input_identifiers = [example.unique_id for example in examples]
 
-                # input_identifiers_all.extend(input_identifiers)
-
-                self.decks[0].append(input_identifiers[0])
-                self.deck_of_items.update({input_identifiers[0]: 0})
-            # print("input_identifiers_all:", input_identifiers_all[:100])
+            self.decks[0].append(input_identifiers[0])
+            self.deck_of_items.update({input_identifiers[0]: 0})
 
     # deck 0: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
     # deck 1: 2, 4, 6, 8
@@ -72,8 +61,6 @@ class LeitnerQueue(object):
                     next_deck = max(0, current_deck -1)
 
             previous_deck = current_deck
-
-            # print("self.deck_of_items:", self.deck_of_items, " id:", id, " current_deck:", current_deck, " next_deck:", next_deck)
 
             if previous_deck != next_deck:
                 # remove from previous deck
