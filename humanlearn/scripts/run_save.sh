@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-TASK_NAME=${1:-"mtop"} # "xnli" "tydiqa" "panx"
-MODEL=${2:-"vanilla"} # vanilla, incr-joint, multi, er-rand, mer-rand, {cont-mono,cont-multi}_{fifo,rand}, {cont-mono,cont-multi}_rand, {cont-mono,cont-multi}_{fifo,rand}_{er-only,er-main,er-both}_{easy,hard,random,balanced,extreme}
+TASK_NAME=${1:-"mtop"} # "xnli" "tydiqa" "panx" "multiatis"
+MODEL=${2:-"vanilla"} # vanilla, incr-joint, multi, er-rand, mer-rand, {cont-mono,cont-multi}_{fifo,rand,rand-prop}, {cont-mono,cont-multi}_{rand,rand-prop}, {cont-mono,cont-multi}_{fifo,rand,rand-prop}_{er-only,er-main,er-both}_{easy,hard,random,balanced,extreme}
 BATCH_EPOCH=${3:-"epoch"} # batch
 DECKS=${4:-5}
 
@@ -11,19 +11,19 @@ for LANG_ORDER in 0 1 2 3
 do
     echo "RUNNING "$MODEL" >>>>>>>"
     if [ $MODEL == "vanilla" ]; then
-        sh tests/scripts/main.sh $TASK_NAME $LANG_ORDER "cont-mono" "no"
+        sh tests/scripts/main_save.sh $TASK_NAME $LANG_ORDER "cont-mono" "no"
     
     elif [ $MODEL == "incr-joint" ]; then
-        sh tests/scripts/main.sh $TASK_NAME $LANG_ORDER "multi-incr-cll" "no"
+        sh tests/scripts/main_save.sh $TASK_NAME $LANG_ORDER "multi-incr-cll" "no"
     
     elif [ $MODEL == "multi" ]; then
-        sh tests/scripts/main.sh $TASK_NAME $LANG_ORDER "multi" "no"
+        sh tests/scripts/main_save.sh $TASK_NAME $LANG_ORDER "multi" "no"
 
     elif [ $MODEL == "er-rand" ]; then
-        sh tests/scripts/main.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "random"
+        sh tests/scripts/main_save.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "random"
 
     elif [ $MODEL == "mer-rand" ]; then
-        sh tests/scripts/main.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "equal-lang"
+        sh tests/scripts/main_save.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "equal-lang"
 
     elif [ $MODEL == "cont-mono_fifo" ] || [ $MODEL == "cont-multi_fifo" ] || [ $MODEL == "cont-mono_rand" ] || [ $MODEL == "cont-multi_rand" ] ; then
         OPTIONS=($(echo $MODEL | tr "_" "\n"))  
@@ -34,7 +34,7 @@ do
         USE_LEITNER="yes"
         USE_ER="no"
         
-        sh tests/scripts/main.sh \
+        sh tests/scripts/main_save.sh \
             $TASK_NAME \
             $LANG_ORDER \
             $MODE \
@@ -56,7 +56,7 @@ do
         USE_ER="yes"
         USE_LEITNER="yes"
         
-        sh tests/scripts/main.sh \
+        sh tests/scripts/main_save.sh \
             $TASK_NAME \
             $LANG_ORDER \
             $MODE \

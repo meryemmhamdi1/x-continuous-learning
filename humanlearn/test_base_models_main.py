@@ -5,15 +5,18 @@ import json
 import sys
 import importlib
 import time
+import pickle
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import f1_score
+from transformers import BertForQuestionAnswering
 
 # Torch imports
 import torch
 import torch.optim as optim
 from torch import LongTensor
 from torch.utils.tensorboard import SummaryWriter
+import timeit
 
 # Project-related imports
 sys.path.append(os.getcwd())
@@ -32,6 +35,10 @@ from src.utils import (
 )
 from src.consts import SPLIT_NAMES
 from parse_args import get_arguments
+
+START_TIME = timeit.default_timer()
+
+print("Started program at timing: START_TIME: ", START_TIME)
 
 print("Parsing arguments ...")
 args = get_arguments()
@@ -78,7 +85,15 @@ if not args.rand_perf:
             results_dir,
             "ER_prop-" + str(args.er_strategy_prop) + use_er_only_opt,
             "_ERStrategy-" + args.er_strategy,
+            "_WIPEStrategy-" + args.wipe_strategy,
+            "ER_MaxSize-" + str(args.max_mem_sz),
         )
+
+    if args.use_k_means:
+        results_dir = os.path.join(results_dir, "K-MEANS")
+
+    if args.use_wipe:
+        results_dir = os.path.join(results_dir, "WIPE_NEW")
 
     if args.use_er and args.use_leitner:
         results_dir = os.path.join(results_dir, "ERSched-" + args.er_lq_scheduler_type)
@@ -151,6 +166,7 @@ def evaluate_model(examples=None, features=None, iterator=None, out_path=None):
     epoch_tags = []
 
     sents_text = []
+    sents_ids = []
 
     classes_true = []
     classes_pred = []
@@ -204,6 +220,7 @@ def evaluate_model(examples=None, features=None, iterator=None, out_path=None):
                     classes_pred.append(output.logits["class"].squeeze().max(0)[1])
 
                 # Saving the input text
+                sents_ids.append(example.unique_id)
                 sents_text.append(example.get_text())
 
                 item_perf = 1
@@ -290,40 +307,27 @@ def evaluate_model(examples=None, features=None, iterator=None, out_path=None):
         epoch_tags = [v for _, v in all_f1.items()]
 
     if out_path:
+        # Saving predictions
         with open(out_path, "w") as writer:
             for i in range(len(sents_text)):
-                if i < 3:
-                    app_log.info("Sent : %s", sents_text[i])
-                    if args.task_name != "ner":
-                        app_log.info(
-                            " True Class: %s", dataset.class_types[classes_true[i]]
-                        )
-                        app_log.info(
-                            " Prediction Class: %s",
-                            dataset.class_types[classes_pred[i]],
-                        )
-                    if args.use_slots or args.task_name == "ner":
-                        app_log.info(" True Tags: %s", " ".join(tags_true[i]))
-                        app_log.info(" Prediction Tags: %s", " ".join(tags_pred[i]))
-
-                text = sents_text[i]
+                text = sents_ids[i] + "\t" + sents_text[i] + "\t"
                 if args.task_name != "ner":
                     text = (
                         text
-                        + "\t"
                         + dataset.class_types[classes_true[i]]
                         + "\t"
                         + dataset.class_types[classes_pred[i]]
+                        + "\t"
                     )
                 if args.use_slots or args.task_name == "ner":
-                    text = (
-                        text
-                        + "\t"
-                        + " ".join(tags_true[i])
-                        + "\t"
-                        + " ".join(tags_pred[i])
-                    )
+                    text = text + " ".join(tags_true[i]) + "\t" + " ".join(tags_pred[i])
                 writer.write(text + "\n")
+                if i == 0:
+                    app_log.info(text)
+
+        # Saving outcomes per id
+        with open(out_path + "_eval-outcomes.pickle", "wb") as file:
+            pickle.dump(eval_outcomes, file)
 
     return epoch_losses, epoch_class, epoch_tags, eval_outcomes
 
@@ -332,8 +336,8 @@ def get_loss(batch):
     optimizer.zero_grad()  # clear gradients first
     torch.cuda.empty_cache()  # releases all unoccupied cached memory
     batch = transfer_batch_cuda(batch, device)
-    batch["train_idx"] = 0
     if args.task_name != "qa":
+        batch["train_idx"] = 0
         output = model(**batch)
         loss = output.loss["overall"]
         loss.backward()
@@ -341,63 +345,78 @@ def get_loss(batch):
         if args.task_name != "tod":
             opt_scheduler.step()
     else:
-        eff_batch_size = batch["input_ids"].shape[0]
-        times_batch_size, left_batch_size = eff_batch_size // 4, eff_batch_size % 4
-        print("eff_batch_size:", eff_batch_size, " left_batch_size:", left_batch_size)
-        losses = []
-        for eff_k in range(times_batch_size):
-            print("--- eff_k*4:", eff_k * 4, " (eff_k+1)*4:", (eff_k + 1) * 4)
-            eff_batch = {
-                "input_ids": batch["input_ids"][eff_k * 4 : (eff_k + 1) * 4],
-                "input_masks": batch["input_masks"][eff_k * 4 : (eff_k + 1) * 4],
-                "token_type_ids": batch["token_type_ids"][eff_k * 4 : (eff_k + 1) * 4],
-                "start_positions": batch["start_positions"][
-                    eff_k * 4 : (eff_k + 1) * 4
-                ],
-                "end_positions": batch["end_positions"][eff_k * 4 : (eff_k + 1) * 4],
-            }
-            eff_batch["train_idx"] = 0
-            output = model(**eff_batch)
-            loss = output.loss["overall"]
-            if not torch.isnan(loss):
-                losses.append(loss)
-                loss.backward()
-                optimizer.step()
-                if args.task_name != "tod":
-                    opt_scheduler.step()
-                optimizer.zero_grad()  # clear gradients first
-                torch.cuda.empty_cache()  # releases all unoccupied cached memory
+        new_batch = {
+            "input_ids": batch["input_ids"],
+            "attention_mask": batch["input_masks"],
+            "token_type_ids": batch["token_type_ids"],
+            "start_positions": batch["start_positions"],
+            "end_positions": batch["end_positions"],
+        }
+        output = model(**new_batch)  # **batch
+        loss = output[0].mean()
+        if not torch.isnan(loss):
+            loss.backward()
+            optimizer.step()
+            opt_scheduler.step()
+            optimizer.zero_grad()  # clear gradients first
 
-        if times_batch_size == 0:
-            eff_k = 0
-        else:
-            eff_k += 1
+        # eff_batch_size = batch["input_ids"].shape[0]
+        # times_batch_size, left_batch_size = eff_batch_size // 4, eff_batch_size % 4
+        # print("eff_batch_size:", eff_batch_size, " left_batch_size:", left_batch_size)
+        # losses = []
+        # for eff_k in range(times_batch_size):
+        #     print("--- eff_k*4:", eff_k * 4, " (eff_k+1)*4:", (eff_k + 1) * 4)
+        #     eff_batch = {
+        #         "input_ids": batch["input_ids"][eff_k * 4 : (eff_k + 1) * 4],
+        #         "input_masks": batch["input_masks"][eff_k * 4 : (eff_k + 1) * 4],
+        #         "token_type_ids": batch["token_type_ids"][eff_k * 4 : (eff_k + 1) * 4],
+        #         "start_positions": batch["start_positions"][
+        #             eff_k * 4 : (eff_k + 1) * 4
+        #         ],
+        #         "end_positions": batch["end_positions"][eff_k * 4 : (eff_k + 1) * 4],
+        #     }
+        #     eff_batch["train_idx"] = 0
+        #     output = model(**eff_batch)
+        #     loss = output.loss["overall"]
+        #     if not torch.isnan(loss):
+        #         losses.append(loss)
+        #         loss.backward()
+        #         optimizer.step()
+        #         if args.task_name != "tod":
+        #             opt_scheduler.step()
+        #         optimizer.zero_grad()  # clear gradients first
+        #         torch.cuda.empty_cache()  # releases all unoccupied cached memory
 
-        if left_batch_size > 0:
-            print("--- LEFT eff_k*4:", eff_k * 4, " left_batch_size:", left_batch_size)
-            left_batch = {
-                "input_ids": batch["input_ids"][eff_k * 4 : left_batch_size],
-                "input_masks": batch["input_masks"][eff_k * 4 : left_batch_size],
-                "token_type_ids": batch["token_type_ids"][eff_k * 4 : left_batch_size],
-                "start_positions": batch["start_positions"][
-                    eff_k * 4 : left_batch_size
-                ],
-                "end_positions": batch["end_positions"][eff_k * 4 : left_batch_size],
-            }
-            left_batch["train_idx"] = 0
-            output = model(**left_batch)
-            loss = output.loss["overall"]
-            if not torch.isnan(loss):
-                losses.append(loss)
-                loss.backward()
-                optimizer.step()
-                if args.task_name != "tod":
-                    opt_scheduler.step()
+        # if times_batch_size == 0:
+        #     eff_k = 0
+        # else:
+        #     eff_k += 1
 
-                optimizer.zero_grad()  # clear gradients first
-                torch.cuda.empty_cache()  # releases all unoccupied cached memory
+        # if left_batch_size > 0:
+        #     print("--- LEFT eff_k*4:", eff_k * 4, " left_batch_size:", left_batch_size)
+        #     left_batch = {
+        #         "input_ids": batch["input_ids"][eff_k * 4 : left_batch_size],
+        #         "input_masks": batch["input_masks"][eff_k * 4 : left_batch_size],
+        #         "token_type_ids": batch["token_type_ids"][eff_k * 4 : left_batch_size],
+        #         "start_positions": batch["start_positions"][
+        #             eff_k * 4 : left_batch_size
+        #         ],
+        #         "end_positions": batch["end_positions"][eff_k * 4 : left_batch_size],
+        #     }
+        #     left_batch["train_idx"] = 0
+        #     output = model(**left_batch)
+        #     loss = output.loss["overall"]
+        #     if not torch.isnan(loss):
+        #         losses.append(loss)
+        #         loss.backward()
+        #         optimizer.step()
+        #         if args.task_name != "tod":
+        #             opt_scheduler.step()
 
-        loss = torch.mean(torch.stack(losses))
+        #         optimizer.zero_grad()  # clear gradients first
+        #         torch.cuda.empty_cache()  # releases all unoccupied cached memory
+
+        # loss = torch.mean(torch.stack(losses))
     return loss
 
 
@@ -432,6 +451,43 @@ def train_model(iterator, i_task, epoch, lt_scheduler, er_lt_scheduler):
 
     epoch_losses = []
     er_epoch_losses = []
+
+    if args.use_er:
+        er_sample_freq = 10  # num_iter // 10 #
+        if args.use_leitner and args.er_lq_scheduler_type != "er-main":
+            if i_task > 0 and epoch == 0:
+                if args.er_strategy != "equal-lang":
+                    er_lt_scheduler[0].init_first_deck_er(
+                        init_lt_scheduler=lt_scheduler,
+                        i_task=i_task,
+                        use_wipe=args.use_wipe,
+                    )
+                else:
+                    for i, lang in enumerate(args.languages[:i_task]):
+                        er_lt_scheduler[i].init_first_deck_er(
+                            init_lt_scheduler=lt_scheduler,
+                            lang=lang,
+                            i_task=i_task,
+                            use_wipe=args.use_wipe,
+                        )
+        else:
+            memory = iterator["memory"]  #
+
+    # Initialization of Leitner Scheduler Again here
+    ## Leitner Queues
+    if epoch == 0:
+        if args.use_leitner and args.lt_queue_mode in ["mono", "cont-mono"]:
+            # This will be reinitialized with empty deck[0] for each new hop (language) if lt_queue_mode used is mono or cont-mono
+            lt_scheduler = SpacedRepetitionModel.LeitnerQueue(args)
+
+        # Appending (or reinitializing) all the training examples from the current hop to deck[0]
+        if args.use_leitner:
+            lt_scheduler.init_first_deck(
+                dataset=dataset,
+                train_examples=iterator["examples"],
+                nb_examples=iterator["size"],
+            )
+
     if args.use_leitner and args.er_lq_scheduler_type in ["er-main", "er-both"]:
         next_item_ids = lt_scheduler.next_items(epoch)
         scheduler_examples = AugmentedList(
@@ -447,21 +503,6 @@ def train_model(iterator, i_task, epoch, lt_scheduler, er_lt_scheduler):
     num_iter = total_num // args.batch_size
     left_over_batch = total_num % args.batch_size
 
-    if args.use_er:
-        er_sample_freq = 10  # num_iter // 10 #
-        if args.use_leitner and args.er_lq_scheduler_type != "er-main":
-            if i_task > 0 and epoch == 0:
-                if args.er_strategy != "equal-lang":
-                    er_lt_scheduler[0].init_first_deck_er(
-                        init_lt_scheduler=lt_scheduler
-                    )
-                else:
-                    for i, lang in enumerate(args.languages[:i_task]):
-                        er_lt_scheduler[i].init_first_deck_er(
-                            init_lt_scheduler=lt_scheduler, lang=lang
-                        )
-        else:
-            memory = iterator["memory"]  #
     for step_num in tqdm(range(num_iter + 1)):
         if step_num == num_iter:
             to_sample_nb = left_over_batch
@@ -549,25 +590,24 @@ def train_model(iterator, i_task, epoch, lt_scheduler, er_lt_scheduler):
         and args.update_batch_epoch == "epoch"
     ):
         print("Evaluation and Adjusting position of items in MAIN Leitner Queues ...")
-        if total_num != 0:
-            if args.update_everything == "everything":
-                _, all_examples, all_features = dataset.next_batch(
-                    dataset=dataset,
-                    batch_size=iterator["size"],
-                    data_split=iterator["examples"],
-                )
-            else:  # updating only the scheduled examples that the Leitner Queues has visited here
-                _, all_examples, all_features = dataset.next_batch(
-                    dataset=dataset, batch_size=total_num, data_split=train_examples
-                )
+        if args.update_everything == "everything":
+            _, all_examples, all_features = dataset.next_batch(
+                dataset=dataset,
+                batch_size=iterator["size"],
+                data_split=iterator["examples"],
+            )
+        else:  # updating only the scheduled examples that the Leitner Queues has visited here
+            _, all_examples, all_features = dataset.next_batch(
+                dataset=dataset, batch_size=total_num, data_split=train_examples
+            )
 
-            print("Testing ...")
-            _, _, _, eval_output = evaluate_model(
-                examples=all_examples, features=all_features
-            )  # OVER THE WHOLE SET OF EXAMPLES
+        print("Testing ...")
+        _, _, _, eval_output = evaluate_model(
+            examples=all_examples, features=all_features
+        )  # OVER THE WHOLE SET OF EXAMPLES
 
-            print("Placing items ...")
-            lt_scheduler.place_items(eval_output)
+        print("Placing items ...")
+        lt_scheduler.place_items(eval_output)
 
         if args.use_er and args.er_lq_scheduler_type != "er-main" and i_task > 0:
             print("Update the ER Leitner Queues ...")
@@ -597,40 +637,66 @@ args.num_slots = len(dataset.slot_types)
 args.num_tasks = -1
 args.eff_num_classes_task = -1
 
-model = DownstreamModel.TransModel(trans_model=model_trans, args=args, device=device)
+
+# def get_n_params(model):
+#     pp = 0
+#     for p in list(model.parameters()):
+#         nn = 1
+#         for s in list(p.size()):
+#             nn = nn * s
+#         pp += nn
+#     return pp
+
+
+if args.task_name != "qa":
+    model = DownstreamModel.TransModel(
+        trans_model=model_trans, args=args, device=device
+    )
+else:
+    model = BertForQuestionAnswering.from_pretrained(model_name, config=config)
 
 model.to(device)
+# app_log.info("Number of parameters: {}".format(get_n_params(model)))
+
 
 if args.rand_perf:
-    train_loss_l, train_acc_f1_l, train_tags_l, _ = evaluate_model(
-        iterator=dataset.train_stream[0],
-        out_path=None,
-    )
+    # Training performance
+    # app_log.info("RANDOM Training performance >>>")
+    # train_loss_l, train_acc_f1_l, train_tags_l, _ = evaluate_model(
+    #     iterator=dataset.train_stream[0],
+    #     out_path=None,
+    # )
 
-    app_log.info("RANDOM Train performance >>>")
-    app_log.info(
-        "--- train_loss: {} train_tag: {}".format(
-            np.mean(train_loss_l), np.mean(train_tags_l)
-        )
-    )
+    # app_log.info(
+    #     "--- train_loss: {} train_tag: {}".format(
+    #         np.mean(train_loss_l), np.mean(train_tags_l)
+    #     )
+    # )
 
     # Validation performance
-    valid_loss_l, valid_acc_f1_l, valid_tags_l, _ = evaluate_model(
-        iterator=dataset.dev_stream[0],
-        out_path=None,
-    )
-    app_log.info("RANDOM Valid performance >>>")
-    app_log.info(
-        "--- loss: {} tag: {}".format(np.mean(valid_loss_l), np.mean(valid_tags_l))
-    )
+    # app_log.info("RANDOM Valid performance >>>")
+    # valid_loss_l, valid_acc_f1_l, valid_tags_l, _ = evaluate_model(
+    #     iterator=dataset.dev_stream[0],
+    #     out_path=None,
+    # )
+    # app_log.info(
+    #     "--- loss: {} tag: {}".format(np.mean(valid_loss_l), np.mean(valid_tags_l))
+    # )
+
+    # Testing performance
     test_accs = {lang: ([], []) for lang in args.languages}
     for lang in args.languages:
+        app_log.info("RANDOM Testing performance for {}".format(lang))
         test_loss_l, test_class_l, test_tags_l, _ = evaluate_model(
             iterator=dataset.test_stream[lang],
             out_path=os.path.join(
                 all_results_dir["predictions"], "Test_random_" + lang
             ),
         )
+        app_log.info(
+            "--- loss: {} tag: {}".format(np.mean(test_loss_l), np.mean(test_tags_l))
+        )
+
         if args.task_name != "ner":
             test_accs[lang][0].append(np.mean(np.mean(test_class_l)))
         if args.use_slots or args.task_name == "ner":
@@ -642,7 +708,32 @@ if args.rand_perf:
 
 ## Optimizer/Scheduler
 app_log.info("Optimizer/Scheduler ...")
-if args.task_name in ["nli", "qa", "ner"]:
+if args.task_name == "qa":
+    no_decay = ["bias", "LayerNorm.weight"]
+
+    weight_decay = 0.0
+    optimizer_grouped_parameters = [
+        {
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if not any(nd in n for nd in no_decay)
+            ],
+            "weight_decay": weight_decay,
+        },
+        {
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if any(nd in n for nd in no_decay)
+            ],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer = optim.AdamW(
+        optimizer_grouped_parameters, lr=args.adam_lr, eps=args.adam_eps
+    )
+elif args.task_name in ["nli", "ner"]:
     optimizer = optim.AdamW(model.parameters(), lr=args.adam_lr, eps=args.adam_eps)
 else:  # especially tod
     optimizer = optim.Adam(
@@ -685,19 +776,6 @@ for i_train in range(len(dataset.train_stream)):
     )
     opt_scheduler = get_opt_scheduler(optimizer, dataset, i_train, args)
 
-    ## Leitner Queues
-    if args.use_leitner and args.lt_queue_mode in ["mono", "cont-mono"]:
-        # This will be reinitialized with empty deck[0] for each new hop (language) if lt_queue_mode used is mono or cont-mono
-        lt_scheduler = SpacedRepetitionModel.LeitnerQueue(args)
-
-    # Appending (or reinitializing) all the training examples from the current hop to deck[0]
-    if args.use_leitner:
-        lt_scheduler.init_first_deck(
-            dataset=dataset,
-            train_examples=dataset.train_stream[i_train]["examples"],
-            nb_examples=train_data_len,
-        )
-
     # Using validation performance to save the best model
     best_valid_perf = 0
     i_best_test = args.epochs - 1
@@ -738,20 +816,20 @@ for i_train in range(len(dataset.train_stream)):
 
         for split_name in SPLIT_NAMES:
             for lang_split in ep_metrics[split_name]["losses"]:
-                app_log.info("Evaluating {} ".format(split_name))
-                if split_name in ["valid", "test"]:
-                    out_path = os.path.join(
-                        all_results_dir["predictions"],
-                        split_name
-                        + "_on-"
-                        + str(lang_split)
-                        + "_aftertrainon-"
-                        + str(i_train)
-                        + "_epoch-"
-                        + str(epoch),
-                    )
-                else:
-                    out_path = None
+                app_log.info("Evaluating {} on {} ".format(split_name, lang_split))
+                # if split_name in ["valid", "test"]:
+                out_path = os.path.join(
+                    all_results_dir["predictions"],
+                    split_name
+                    + "_on-"
+                    + str(lang_split)
+                    + "_aftertrainon-"
+                    + str(i_train)
+                    + "_epoch-"
+                    + str(epoch),
+                )
+                # else:
+                #     out_path = None
 
                 (
                     loss_batch_l[split_name],
@@ -775,7 +853,7 @@ for i_train in range(len(dataset.train_stream)):
                 ep_metrics[split_name]["losses"][lang_split].append(eval_loss)
                 ep_metrics[split_name]["class"][lang_split].append(eval_class)
 
-                if args.use_slots or args.task_name == "ner":
+                if args.use_slots or args.task_name in ["ner", "qa"]:
                     eval_tag = np.mean(tags_batch_l[split_name])
                     ep_metrics[split_name]["tags"][lang_split].append(eval_tag)
 
@@ -891,11 +969,37 @@ for i_train in range(len(dataset.train_stream)):
                     ) as output_file:
                         json.dump(er_lt.get_by_descriptor(descriptor), output_file)
 
+    # Save at the end of the hop if save_per_hop is true
+    if args.save_per_hop:
+        torch.save(
+            args,
+            os.path.join(
+                all_results_dir["checkpoints"],
+                "hop_" + str(i_train) + "_train_args.bin",
+            ),
+        )
+        torch.save(
+            model.state_dict(),
+            os.path.join(
+                all_results_dir["checkpoints"], "hop_" + str(i_train) + "_model.bin"
+            ),
+        )
+        torch.save(
+            optimizer.state_dict(),
+            os.path.join(
+                all_results_dir["checkpoints"], "hop_" + str(i_train) + "_optimizer.pt"
+            ),
+        )
+
     metrics.append(ep_metrics)
 
 app_log.info("Saving Metrics in {} ...".format(results_dir))
 with open(os.path.join(results_dir, "metrics.json"), "w") as output_file:
     json.dump(metrics, output_file)
+
+END_TIME = timeit.default_timer()
+
+app_log.info("Executed the program in {} seconds".format(END_TIME - START_TIME))
 
 sys.stdout.close()
 sys.stdout = stdoutOrigin

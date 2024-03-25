@@ -6,7 +6,7 @@ LANG_ORDER=${2:-0} # 0 1 2 3 4 5 6 7
 MODE=${3:-"cont-mono"} # "mono", "cont-mono", "cont-multi", "multi", "multi-incr-cll"
 USE_LEITNER=${4:-"yes"} # no
 LTN_MODEL=${5:-"ltn"} # rbf
-RANDOM_BASELINE=${6:-"fifo"} # rand
+RANDOM_BASELINE=${6:-"fifo"} # "rand" "rand-prop"
 USE_ER=${7:-"no"} # yes
 NUM_DECKS=${8:-5} # 3, 4, 5, 6, 7
 BATCH_EPOCH=${9:-"epoch"} # batch
@@ -29,26 +29,30 @@ UPDATE_EVERYTHING=${12:-"everything"}
 DATASET_PARAMS=""
 if [ $TASK == "mtop" ]; then
    DATASET_PARAMS+="--task_name tod --data_name mtop --data_format txt --use_slots --use_crf"
-   ORDER_LST=("en_de_hi_th" "th_hi_de_en" "hi_th_en_de" "de_en_th_hi" "en" "de" "hi" "th") 
+   ORDER_LST=("en_de_hi_th" "th_hi_de_en" "hi_th_en_de" "de_en_th_hi" "en" "de" "hi" "th" "en_de_fr_hi_es_th" "th_es_hi_fr_de_en" "es_hi_en_de_th_fr" "fr_th_de_en_hi_es" "hi_en_es_th_fr_de" "de_fr_th_es_en_hi") 
+   MAX_MEM_SZ=10105
+elif [ $TASK == "multiatis" ]; then
+   DATASET_PARAMS+="--task_name tod --data_name multiatis --data_format tsv --use_slots --use_crf"
+   ORDER_LST=("en_fr_tr_zh" "zh_tr_fr_en" "tr_zh_en_fr" "fr_en_zh_tr" "en" "fr" "tr" "zh")
+   MAX_MEM_SZ=500
 elif [ $TASK == "xnli" ]; then
    DATASET_PARAMS+="--task_name nli --data_name xnli --data_format tsv"
    ORDER_LST=("en_vi_ar_tr" "tr_ar_vi_en" "ar_tr_en_vi" "vi_en_tr_ar" "vi" "en" "tr" "ar")
+   MAX_MEM_SZ=1000
 elif [ $TASK == "tydiqa" ]; then
    DATASET_PARAMS+="--task_name qa --data_name tydiqa --data_format json"
    ORDER_LST=("ru_id_te_sw" "sw_te_id_ru" "te_sw_ru_id" "id_ru_sw_te" "id" "ru" "sw" "te")
+   MAX_MEM_SZ=500
 elif [ $TASK == "panx" ]; then
    DATASET_PARAMS+="--task_name ner --data_name panx --data_format txt"
-   ORDER_LST=("ru_id_te_sw" "sw_te_id_ru" "te_sw_ru_id" "id_ru_sw_te", "id" "ru" "sw" "te")
+   ORDER_LST=("ru_id_te_sw" "sw_te_id_ru" "te_sw_ru_id" "id_ru_sw_te" "id" "ru" "sw" "te")
+   MAX_MEM_SZ=1000
 fi
 # Extra Parameters
 
 EXTRA_PARAMS=""
 if [ $USE_LEITNER == "yes" ]; then
    EXTRA_PARAMS+="--use_leitner "
-fi
-
-if [ $RANDOM_BASELINE == "rand" ]; then
-   EXTRA_PARAMS+="--lt_sampling_mode rand "
 fi
 
 if [ $USE_ER == "yes" ]; then
@@ -71,5 +75,7 @@ python tests/test_base_models_main.py --order_lst ${ORDER_LST[$LANG_ORDER]} \
                                       --num_decks $NUM_DECKS \
                                       --update_batch_epoch $BATCH_EPOCH \
                                       --update_everything $UPDATE_EVERYTHING \
+                                      --max_mem_sz $MAX_MEM_SZ \
+                                      --lt_sampling_mode $RANDOM_BASELINE \
                                       $DATASET_PARAMS \
                                       $EXTRA_PARAMS

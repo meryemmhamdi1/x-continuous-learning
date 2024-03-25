@@ -22,6 +22,39 @@ def get_arguments():
         "--data_format", type=str, default="txt", choices=["tsv", "json", "txt"]
     )
 
+    ## QA Dataset Related Arguments
+    parser.add_argument(
+        "--do_lower_case",
+        help="Set this flag if you are using an uncased model.",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--verbose_logging",
+        help="If true, all of the warnings related to data processing will be printed. "
+        "A number of warnings are expected for a normal SQuAD evaluation.",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--version_2_with_negative",
+        help="If true, the SQuAD examples contain some that do not have an answer.",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--null_score_diff_threshold",
+        help="If null_score - best_non_null is greater than the threshold predict null.",
+        type=float,
+        default=0.0,
+    )
+
+    parser.add_argument(
+        "--save_per_hop",
+        help="Whether to save the model at the end of a hop",
+        action="store_true",
+    )
+
     # SETUP OPTIONS
     parser.add_argument("--setup_opt", type=str, default="cll-er_kd")
     parser.add_argument("--use_mono", action="store_true")
@@ -68,7 +101,10 @@ def get_arguments():
     parser.add_argument("--demote_to_first_deck", action="store_true")
     parser.add_argument("--num_decks", type=int, default=5)
     parser.add_argument(
-        "--lt_sampling_mode", choices=["fifo", "rand"], type=str, default="fifo"
+        "--lt_sampling_mode",
+        choices=["fifo", "rand", "rand-prop"],
+        type=str,
+        default="fifo",
     )
     parser.add_argument(
         "--lt_queue_mode",
@@ -112,17 +148,23 @@ def get_arguments():
     ### ER Parameters
     parser.add_argument("--use_er", action="store_true")
 
+    parser.add_argument("--use_k_means", action="store_true")
+
     parser.add_argument(
         "--max_mem_sz",
         help="The maximum size of the memory to be used in replay",
         type=int,
-        default=100,
+        default=1000,  # 10105,
     )
 
     parser.add_argument(
         "--use_er_only",
         help="Whether to do the backward over both main and memory batch or just the memory batch every 100 steps",
         action="store_true",
+    )
+
+    parser.add_argument(
+        "--use_wipe", help="Whether to wipe memory", action="store_true"
     )
 
     parser.add_argument(
@@ -163,6 +205,22 @@ def get_arguments():
         "- Random: from all decks we pick something random"
         "- Per movement: keep track of items movements across queues"
         "- equal-lang: like the ER baseline with multiple multilingual leitner queues",
+    )
+
+    parser.add_argument(
+        "--wipe_strategy",
+        choices=[
+            "hard",
+            "easy",
+            "extreme",
+            "balanced",
+            "exponential",
+            "random",  # could be used in Baseline ER(Rand) or ER(LTN)
+            "per_movement",
+            "equal-lang",  # could be used in Baseline MER(Rand) or MER(LTN)
+        ],
+        type=str,
+        default="random",
     )
 
     args = parser.parse_args()
