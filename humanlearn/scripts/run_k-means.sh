@@ -11,19 +11,19 @@ for LANG_ORDER in 0 1 2 3
 do
     echo "RUNNING "$MODEL" >>>>>>>"
     if [ $MODEL == "vanilla" ]; then
-        sh tests/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "cont-mono" "no"
+        sh humanlearn/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "cont-mono" "no"
     
     elif [ $MODEL == "incr-joint" ]; then
-        sh tests/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "multi-incr-cll" "no"
+        sh humanlearn/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "multi-incr-cll" "no"
     
     elif [ $MODEL == "multi" ]; then
-        sh tests/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "multi" "no"
+        sh humanlearn/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "multi" "no"
 
     elif [ $MODEL == "er-rand" ]; then
-        sh tests/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "random"
+        sh humanlearn/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "random"
 
     elif [ $MODEL == "mer-rand" ]; then
-        sh tests/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "equal-lang"
+        sh humanlearn/scripts/main_k-means.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "equal-lang"
 
     elif [ $MODEL == "cont-mono_fifo" ] || [ $MODEL == "cont-multi_fifo" ] || [ $MODEL == "cont-mono_rand" ] || [ $MODEL == "cont-multi_rand" ] ; then
         OPTIONS=($(echo $MODEL | tr "_" "\n"))  
@@ -34,7 +34,7 @@ do
         USE_LEITNER="yes"
         USE_ER="no"
         
-        sh tests/scripts/main_k-means.sh \
+        sh humanlearn/scripts/main_k-means.sh \
             $TASK_NAME \
             $LANG_ORDER \
             $MODE \
@@ -56,7 +56,7 @@ do
         USE_ER="yes"
         USE_LEITNER="yes"
         
-        sh tests/scripts/main_k-means.sh \
+        sh humanlearn/scripts/main_k-means.sh \
             $TASK_NAME \
             $LANG_ORDER \
             $MODE \

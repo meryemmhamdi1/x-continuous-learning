@@ -22,7 +22,7 @@ elif [ $TASK == "panx" ]; then
    ORDER_LST=("ru_id_te_sw" "sw_te_id_ru" "te_sw_ru_id" "id_ru_sw_te" "id" "ru" "sw" "te")
 fi
 
-python tests/test_base_models_main.py --order_lst ${ORDER_LST[$LANG_ORDER]} \
+python humanlearn/test_base_models_main.py --order_lst ${ORDER_LST[$LANG_ORDER]} \
                                       --lt_queue_mode $MODE \
                                       $DATASET_PARAMS \
                                       $EXTRA_PARAMS \

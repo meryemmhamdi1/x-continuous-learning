@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# sh tests/scripts/main.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "random"
+# sh humanlearn/scripts/main.sh $TASK_NAME $LANG_ORDER "cont-mono" "no" $LTN_MODEL "fifo" "yes" 5 "epoch" "er-main" "random"
 TASK=${1:-"mtop"} # mtop, xnli, tydiqa, panx
 LANG_ORDER=${2:-0} # 0 1 2 3 4 5 6 7
 MODE=${3:-"cont-mono"} # "mono", "cont-mono", "cont-multi", "multi", "multi-incr-cll"
@@ -66,7 +66,7 @@ fi
 
 echo "EXTRA_PARAMS: "$EXTRA_PARAMS
 
-python tests/test_base_models_main.py --order_lst ${ORDER_LST[$LANG_ORDER]} \
+python humanlearn/test_base_models_main.py --order_lst ${ORDER_LST[$LANG_ORDER]} \
                                       --lt_queue_mode $MODE \
                                       --ltn_model $LTN_MODEL \
                                       --num_decks $NUM_DECKS \
