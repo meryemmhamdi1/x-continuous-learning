@@ -14,6 +14,7 @@ ER_LQ_SCHEDULER_TYPE=${10:-"er-both"} # er-main er-only
 ER_STRATEGY=${11:-"hard"} # "easy", "extreme", "balanced", "random", "equal-lang", "per_movement" (NOT YET), "exponential" (NOT YET)
 UPDATE_EVERYTHING=${12:-"everything"}
 WIPE_STRATEGY=${13:-"random"} # easy hard random
+MAX_MEM_SZ=${14:-10105} # 500 1000 2500 5000 7500
 
 ## EXAMPLES
 # ER LEITNER BOTH HARD: "xnli" 0 "cont-multi" "yes" "ltn" "fifo" "yes" 5 "yes" "er-both" "hard"
@@ -31,23 +32,23 @@ DATASET_PARAMS=""
 if [ $TASK == "mtop" ]; then
    DATASET_PARAMS+="--task_name tod --data_name mtop --data_format txt --use_slots --use_crf"
    ORDER_LST=("en_de_hi_th" "th_hi_de_en" "hi_th_en_de" "de_en_th_hi" "en" "de" "hi" "th") 
-   MAX_MEM_SZ=10105
+   # MAX_MEM_SZ=10105
 elif [ $TASK == "multiatis" ]; then
    DATASET_PARAMS+="--task_name tod --data_name multiatis --data_format tsv --use_slots --use_crf"
    ORDER_LST=("en_fr_tr_zh" "zh_tr_fr_en" "tr_zh_en_fr" "fr_en_zh_tr" "en" "fr" "tr" "zh")
-   MAX_MEM_SZ=500
+   # MAX_MEM_SZ=500
 elif [ $TASK == "xnli" ]; then
    DATASET_PARAMS+="--task_name nli --data_name xnli --data_format tsv"
    ORDER_LST=("en_vi_ar_tr" "tr_ar_vi_en" "ar_tr_en_vi" "vi_en_tr_ar" "vi" "en" "tr" "ar")
-   MAX_MEM_SZ=1000
+   # MAX_MEM_SZ=1000
 elif [ $TASK == "tydiqa" ]; then
    DATASET_PARAMS+="--task_name qa --data_name tydiqa --data_format json"
    ORDER_LST=("ru_id_te_sw" "sw_te_id_ru" "te_sw_ru_id" "id_ru_sw_te" "id" "ru" "sw" "te")
-   MAX_MEM_SZ=500
+   # MAX_MEM_SZ=500
 elif [ $TASK == "panx" ]; then
    DATASET_PARAMS+="--task_name ner --data_name panx --data_format txt"
    ORDER_LST=("ru_id_te_sw" "sw_te_id_ru" "te_sw_ru_id" "id_ru_sw_te" "id" "ru" "sw" "te")
-   MAX_MEM_SZ=1000
+   # MAX_MEM_SZ=1000
 fi
 # Extra Parameters
 

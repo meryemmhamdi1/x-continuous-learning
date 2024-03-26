@@ -4,6 +4,7 @@ TASK_NAME=${1:-"mtop"} # "xnli" "tydiqa" "panx" "multiatis"
 MODEL=${2:-"vanilla"} # vanilla, incr-joint, multi, er-rand, mer-rand, {cont-mono,cont-multi}_{fifo,rand,rand-prop}, {cont-mono,cont-multi}_{rand,rand-prop}, {cont-mono,cont-multi}_{fifo,rand,rand-prop}_{er-only,er-main,er-both}_{easy,hard,random,balanced,extreme},{easy,hard,random}
 BATCH_EPOCH=${3:-"epoch"} # batch
 DECKS=${4:-5}
+MAX_MEM_SZ=${5:-10105} # 500 1000 2500 5000 7500
 
 LTN_MODEL="ltn"
 
@@ -46,6 +47,7 @@ do
             $BATCH_EPOCH
 
     else 
+        echo "MEM SIZE " $MAX_MEM_SZ
         OPTIONS=($(echo $MODEL | tr "_" "\n"))  
 
         MODE=${OPTIONS[0]}
@@ -70,6 +72,7 @@ do
             $ER_LQ_SCHEDULER_TYPE \
             $ER_STRATEGY \
             "everything" \
-            $WIPE_STRATEGY
+            $WIPE_STRATEGY \
+            $MAX_MEM_SZ
     fi
 done
