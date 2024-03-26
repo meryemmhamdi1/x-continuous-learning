@@ -42,9 +42,7 @@ Please refer to scripts folder for bash script (train_trans_nlu_generic.sh) to r
 
 After providing paths.ini where you include DATA_ROOT and TRANS_MODEL and OUT_DIR paths under ENDEAVOUR attribute, run sh scripts/train_trans_nlu_generic.sh
 
-[TODO] add some examples of scripts
-
-The predictions for key experiments are provided in predictions folder. Due to size limitations in Github and for an exhaustive list of predictions, please refer to this [link](https://drive.google.com/drive/folders/11adeU6AMg6QfNcoKTzqAP5eLnf5dFsYS?usp=sharing).
+Due to size limitations in Github and for an exhaustive list of predictions, please refer to this [link](https://drive.google.com/drive/folders/11adeU6AMg6QfNcoKTzqAP5eLnf5dFsYS?usp=sharing).
 ## 5. Results Visualization <a name="results"></a>:
 
 COMING SOON
