@@ -20,9 +20,10 @@ Cross-lingual continual learning aims to continuously fine-tune a downstream mod
 
 ## 3. Running Scripts <a name="scripts"></a>:
 
-Please refer to scripts folder for bash script (train_trans_nlu_generic.sh) to run different approaches and options and the hyperparameters (hyperparam.ini) used throughout all experiments.
+Please refer to scripts folder for bash script [main.sh](scripts/main.sh) to run different approaches and options.
+The hyperparameters used for each base model can be found under [hyperparameters](https://github.com/meryemmhamdi1/x-continuous-learning/tree/main/src/scripts) folder in scripts in root directory. 
 
-After providing paths.ini where you include DATA_ROOT and TRANS_MODEL and OUT_DIR paths under ENDEAVOUR attribute, run sh scripts/train_trans_nlu_generic.sh
+After adding a paths.ini where you include DATA_ROOT and TRANS_MODEL and OUT_DIR paths under ENDEAVOUR attribute, run different scripts prefixed with "run" with different command line options.
 
 ## 4. Citation <a name="citation"></a>:
 
